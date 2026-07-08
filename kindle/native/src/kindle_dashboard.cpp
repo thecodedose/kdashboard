@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <math.h>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <errno.h>
 #include <pthread.h>
 #include <sys/time.h>
@@ -163,6 +166,12 @@ struct Canvas {
   int height;
   unsigned char* pixels;
 };
+
+void invertCanvasIfDark(Canvas* canvas) {
+  if (!g_invert_images || !canvas->pixels) return;
+  const size_t total = static_cast<size_t>(canvas->width) * static_cast<size_t>(canvas->height);
+  for (size_t i = 0; i < total; i++) canvas->pixels[i] = static_cast<unsigned char>(255 - canvas->pixels[i]);
+}
 
 struct Rect {
   int x;
@@ -2306,11 +2315,9 @@ void flashTouchRectOnFramebuffer(Rect rect) {
   const int right = rect.x + rect.w > static_cast<int>(vinfo.xres) ? static_cast<int>(vinfo.xres) : rect.x + rect.w;
   const int bottom = rect.y + rect.h > static_cast<int>(vinfo.yres) ? static_cast<int>(vinfo.yres) : rect.y + rect.h;
   invertFramebufferArea(fb, &vinfo, &finfo, left, top, right, bottom, 0);
-  msync(fb, screensize, MS_SYNC);
   system("eips '' >/dev/null 2>&1 || true");
   usleep(120000);
   invertFramebufferArea(fb, &vinfo, &finfo, left, top, right, bottom, 0);
-  msync(fb, screensize, MS_SYNC);
   munmap(fb, screensize);
   close(fd);
   system("eips '' >/dev/null 2>&1 || true");
@@ -2356,6 +2363,7 @@ int renderToFramebuffer(const Dashboard* dashboard, const char* status, const ch
     return 0;
   }
   drawCurrentDashboard(&canvas, dashboard, status);
+  invertCanvasIfDark(&canvas);
   if (save_pgm && save_pgm[0]) {
     writePgm(save_pgm, &canvas);
     fprintf(stderr, "render=save-pgm %s width=%d height=%d\n", save_pgm, canvas.width, canvas.height);
@@ -2364,7 +2372,6 @@ int renderToFramebuffer(const Dashboard* dashboard, const char* status, const ch
     for (int x = 0; x < canvas.width; x++) putFramebufferPixel(fb, &vinfo, &finfo, x, y, canvas.pixels[y * canvas.width + x]);
   }
   free(canvas.pixels);
-  msync(fb, screensize, MS_SYNC);
   munmap(fb, screensize);
   close(fd);
   system("eips '' >/dev/null 2>&1 || true");
@@ -3000,6 +3007,7 @@ int dumpBitmapPreview(const Dashboard* dashboard, const char* status, const char
   canvas.pixels = static_cast<unsigned char*>(calloc(static_cast<size_t>(canvas.width) * static_cast<size_t>(canvas.height), 1));
   if (!canvas.pixels) return 0;
   drawCurrentDashboard(&canvas, dashboard, status);
+  invertCanvasIfDark(&canvas);
   const int ok = writePgm(path, &canvas);
   free(canvas.pixels);
   return ok;
@@ -3079,7 +3087,7 @@ int waitForWakeEvent(const Options* options, int seconds, int allow_repaint) {
       continue;
     }
     if (g_event_refresh) {
-      fprintf(stderr, "events=refresh_now\n");
+      fprintf(stderr, "events=refresh_now elapsed=%d\n", elapsed);
       return 1;
     }
     if (allow_repaint && shouldRepaintCachedTick(elapsed)) {

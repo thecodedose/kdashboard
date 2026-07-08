@@ -1,0 +1,10 @@
+# Kindle-side shell scripts are parsed by BusyBox/dash on-device, which chokes on
+# embedded \r characters. Force LF regardless of a contributor's local
+# core.autocrlf setting (Windows commonly defaults to true), otherwise scripts can
+# silently pick up CRLF on checkout and fail on the Kindle with no error output at
+# all — see WINDOWS_FIXES.md.
+*.sh text eol=lf
+
+# SQL migrations get passed as raw file content to the InsForge CLI in some code
+# paths; keep them LF for the same reason.
+*.sql text eol=lf
