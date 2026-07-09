@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+const cliEntry = fileURLToPath(new URL("../node_modules/@insforge/cli/dist/index.js", import.meta.url));
 
 const schemaMigrations = [
   "migrations/001_planner_lists.sql",
@@ -98,9 +101,7 @@ function randomSecret() {
 }
 
 function run(args, options = {}) {
-  const output = execFileSync("npx", ["@insforge/cli", ...args], {
-    encoding: "utf8",
-    stdio: options.silent ? ["ignore", "pipe", "pipe"] : "inherit"
-  });
+  const stdio = options.silent ? ["ignore", "pipe", "pipe"] : "inherit";
+  const output = execFileSync(process.execPath, [cliEntry, ...args], { encoding: "utf8", stdio });
   return output || "";
 }

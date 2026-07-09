@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const cliEntry = fileURLToPath(new URL("../node_modules/@insforge/cli/dist/index.js", import.meta.url));
 
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
@@ -69,8 +72,5 @@ function fetchSync(url, body) {
 }
 
 function run(args) {
-  return execFileSync("npx", ["@insforge/cli", ...args], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
-  });
+  return execFileSync(process.execPath, [cliEntry, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
