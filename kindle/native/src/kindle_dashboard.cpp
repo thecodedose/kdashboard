@@ -2307,11 +2307,9 @@ void flashTouchRectOnFramebuffer(Rect rect) {
   const int right = rect.x + rect.w > static_cast<int>(vinfo.xres) ? static_cast<int>(vinfo.xres) : rect.x + rect.w;
   const int bottom = rect.y + rect.h > static_cast<int>(vinfo.yres) ? static_cast<int>(vinfo.yres) : rect.y + rect.h;
   invertFramebufferArea(fb, &vinfo, &finfo, left, top, right, bottom, 0);
-  msync(fb, screensize, MS_SYNC);
   system("eips '' >/dev/null 2>&1 || true");
   usleep(120000);
   invertFramebufferArea(fb, &vinfo, &finfo, left, top, right, bottom, 0);
-  msync(fb, screensize, MS_SYNC);
   munmap(fb, screensize);
   close(fd);
   system("eips '' >/dev/null 2>&1 || true");
@@ -2365,7 +2363,6 @@ int renderToFramebuffer(const Dashboard* dashboard, const char* status, const ch
     for (int x = 0; x < canvas.width; x++) putFramebufferPixel(fb, &vinfo, &finfo, x, y, canvas.pixels[y * canvas.width + x]);
   }
   free(canvas.pixels);
-  msync(fb, screensize, MS_SYNC);
   munmap(fb, screensize);
   close(fd);
   system("eips '' >/dev/null 2>&1 || true");
