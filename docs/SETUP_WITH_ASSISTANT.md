@@ -26,7 +26,7 @@ own Kindle. Please follow docs/INSTALL_FOR_USERS.md and use AGENTS.md.
 
 Important:
 - Do not hardcode or commit secrets.
-- Use npx @insforge/cli for InsForge commands.
+- Use npx -y @insforge/cli for InsForge commands.
 - Create or link an InsForge project only after confirming with me.
 - Apply the public kit backend setup with npm run kit:backend.
 - Help me configure Telegram, generate Kindle config.sh, and verify the deployed
@@ -39,7 +39,7 @@ Important:
 After you are logged into InsForge, use this prompt:
 
 ```text
-Please check the current InsForge link with npx @insforge/cli current. If no
+Please check the current InsForge link with npx -y @insforge/cli current. If no
 project is linked, ask me whether to create a fresh project or link an existing
 empty one. Then run npm run kit:backend and report any failed migration,
 secret, or function deploy step.
@@ -48,7 +48,7 @@ secret, or function deploy step.
 If the assistant needs you to create a new project manually, use:
 
 ```sh
-npx @insforge/cli create --name kindle-dashboard --region us-east --template empty
+npx -y @insforge/cli create --name kindle-dashboard --region us-east --template empty
 ```
 
 ## Assistant Prompt: Secrets
@@ -71,8 +71,8 @@ Optional:
 The assistant may run commands like:
 
 ```sh
-npx @insforge/cli secrets add INSFORGE_BASE_URL https://your-project.insforge.app
-npx @insforge/cli secrets add INSFORGE_API_KEY your-server-only-api-key
+npx -y @insforge/cli secrets add INSFORGE_BASE_URL https://your-project.insforge.app
+npx -y @insforge/cli secrets add INSFORGE_API_KEY your-server-only-api-key
 ```
 
 ## Assistant Prompt: Telegram
@@ -224,3 +224,11 @@ Please inspect the Kindle-side install. Check that the native binary exists,
 the shell scripts are executable, config.sh exists, and logs under
 /mnt/us/documents or /Volumes/Kindle/documents show the failing command.
 ```
+
+## Optional feature setup
+
+Follow the integration guides linked from `docs/INSTALL_FOR_USERS.md` for
+Google Health, Calendar, notes, vacuum, Spotify and order summaries. Use only the
+owner's accounts and backend. Do not copy another installation's OAuth files,
+project IDs, speaker address, device identity, personal artwork or cached data.
+No automation or external account is preconfigured by this checkout.

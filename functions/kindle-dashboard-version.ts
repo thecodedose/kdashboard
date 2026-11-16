@@ -80,12 +80,12 @@ function corsHeaders(): HeadersInit {
 }
 
 function isAuthorizedDashboardRead(req: Request): boolean {
-  const configuredToken = requiredEnv("DASHBOARD_READ_TOKEN");
+  const configuredToken = Deno.env.get("DASHBOARD_READ_TOKEN");
   const receivedToken =
     req.headers.get("x-dashboard-read-token") ||
     bearerToken(req.headers.get("authorization")) ||
     new URL(req.url).searchParams.get("read_token");
-  return Boolean(receivedToken) && receivedToken === configuredToken;
+  return Boolean(configuredToken && receivedToken) && receivedToken === configuredToken;
 }
 
 function bearerToken(header: string | null): string {

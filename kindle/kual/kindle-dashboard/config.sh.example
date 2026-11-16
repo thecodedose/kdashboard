@@ -12,5 +12,17 @@ INTERVAL="3600"
 DASHBOARD_KEEP_AWAKE="1"
 DASHBOARD_SLEEP_WINDOW="off"
 # Optional: leave unset to use the Kindle's own timezone.
-# DASHBOARD_TIMEZONE="Asia/Kolkata"
+# DASHBOARD_TIMEZONE="UTC"
 INVERT_IMAGES="0"
+
+# Optional direct Narwal X10 Pro connection. By default the launcher reuses
+# extensions/narwal-probe/config.sh and its saved identity from the connection test.
+# NARWAL_HOST="your-vacuum-local-ip"
+# NARWAL_IDENTITY_FILE="/mnt/us/extensions/narwal-probe/identity.txt"
+
+# Music endpoint is derived from DASHBOARD_DATA_URL by default.
+# DASHBOARD_MUSIC_URL="https://your-project.insforge.app/functions/kindle-dashboard-music"
+# Connect Spotify on the Mac once with npm run music:connect and music:configure.
+
+# Orders endpoint is also derived from DASHBOARD_DATA_URL by default.
+# DASHBOARD_ORDERS_URL="https://your-project.insforge.app/functions/kindle-dashboard-orders"

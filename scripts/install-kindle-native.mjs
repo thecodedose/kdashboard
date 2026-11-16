@@ -41,7 +41,8 @@ if (!force && !isLikelyKindleVolume(volume)) {
 
 mkdirSync(extensionsDir, { recursive: true });
 mkdirSync(documentsDir, { recursive: true });
-rmSync(targetDir, { recursive: true, force: true });
+// Overlay updates preserve config, vacuum identity and other device-local files.
+mkdirSync(targetDir, { recursive: true });
 execFileSync("tar", ["-C", extensionsDir, "-xzf", archive], {
   env: { ...process.env, COPYFILE_DISABLE: "1" },
   stdio: "inherit"
@@ -83,7 +84,7 @@ if (existingConfig) {
 if (dataUrl) {
   try {
     const response = await fetch(dataUrl, {
-      headers: readToken ? { "X-Dashboard-Read-Token": readToken } : undefined
+      headers: { ...(readToken ? { "X-Dashboard-Read-Token": readToken } : {}), ...(toggleToken ? { "X-Dashboard-Toggle-Token": toggleToken } : {}) }
     });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);

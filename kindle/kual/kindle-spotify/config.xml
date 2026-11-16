@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension>
+  <information><name>Spotify on Kindle</name><version>0.1</version><author>Kindle Dashboard</author><id>kindle-spotify</id></information>
+  <menus><menu type="json" dynamic="true">menu.json</menu></menus>
+</extension>

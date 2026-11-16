@@ -14,7 +14,7 @@ If you want a coding assistant to walk through this with you, start with
 - A Telegram bot token from BotFather.
 - Optional: Zig or an ARM Kindle cross compiler if you want to rebuild the native binary yourself.
 
-The Kindle package never stores the InsForge admin API key. It reads from public
+The Kindle package never stores the InsForge admin API key. It reads from token-protected
 dashboard endpoints and sends item toggles through the deployed toggle function.
 
 ## 1. Create Your Backend
@@ -23,13 +23,13 @@ Clone the repo, install dependencies, and log in to InsForge:
 
 ```sh
 npm install
-npx @insforge/cli login
+npx -y @insforge/cli login
 ```
 
 Create a fresh InsForge project, or link this checkout to an existing empty one:
 
 ```sh
-npx @insforge/cli create --name kindle-dashboard --region us-east --template empty
+npx -y @insforge/cli create --name kindle-dashboard --region us-east --template empty
 ```
 
 Bootstrap the schema, generated secrets, and functions:
@@ -55,15 +55,15 @@ Set the backend URL and API key for the functions. These are server-side
 function secrets, not Kindle-side values.
 
 ```sh
-npx @insforge/cli secrets add INSFORGE_BASE_URL https://your-project.insforge.app
-npx @insforge/cli secrets add INSFORGE_API_KEY your-server-only-api-key
+npx -y @insforge/cli secrets add INSFORGE_BASE_URL https://your-project.insforge.app
+npx -y @insforge/cli secrets add INSFORGE_API_KEY your-server-only-api-key
 ```
 
 Optional natural-language parsing:
 
 ```sh
-npx @insforge/cli secrets add OPENAI_API_KEY your-openai-key
-npx @insforge/cli secrets add OPENAI_MODEL gpt-4o-mini
+npx -y @insforge/cli secrets add OPENAI_API_KEY your-openai-key
+npx -y @insforge/cli secrets add OPENAI_MODEL gpt-4o-mini
 ```
 
 If `OPENAI_API_KEY` is missing, the Telegram webhook uses its built-in command
@@ -297,8 +297,8 @@ INVERT_IMAGES="0"
 Fetch the tokens from InsForge and paste them into `config.sh`:
 
 ```sh
-npx @insforge/cli secrets get DASHBOARD_READ_TOKEN --json
-npx @insforge/cli secrets get DASHBOARD_TOGGLE_TOKEN --json
+npx -y @insforge/cli secrets get DASHBOARD_READ_TOKEN --json
+npx -y @insforge/cli secrets get DASHBOARD_TOGGLE_TOKEN --json
 ```
 
 Use the direct `function2.insforge.app` host for the events URL. InsForge's
@@ -347,9 +347,9 @@ aggregate rows to the `health-sync` InsForge function.
 Before running the iOS app, make sure the health pieces are deployed:
 
 ```sh
-npx @insforge/cli db migrations up 20260627000000_create-health-daily-summaries.sql
-npx @insforge/cli secrets add HEALTH_SYNC_TOKEN <long-random-health-sync-token>
-npx @insforge/cli functions deploy health-sync --file functions/health-sync.ts --name "Health Sync"
+npx -y @insforge/cli db migrations up 20260627000000_create-health-daily-summaries.sql
+npx -y @insforge/cli secrets add HEALTH_SYNC_TOKEN <long-random-health-sync-token>
+npx -y @insforge/cli functions deploy health-sync --file functions/health-sync.ts --name "Health Sync"
 ```
 
 Then configure the local iOS secret:
@@ -386,3 +386,24 @@ Then replace the installed KUAL extension files, keeping your local `config.sh`.
   the read token.
 - This kit is single-owner by design. For a hosted multi-user service, every
   table and function would need per-user scoping and device pairing.
+
+## Optional integrations in this version
+
+The backend bootstrap now includes Quick Note, Google Health, Calendar, Music,
+and Orders schemas/functions. It does not connect any external accounts or
+create sync schedules. Configure only the integrations you want:
+
+- [Google Health](google-health.md): Fitbit daily steps and nutrition.
+- [Widgets](kindle-widgets.md): Quick Note, read-only Google Calendar and direct
+  Narwal X10 Pro LAN controls, including room selection and cleaning modes.
+- [Music](kindle-music.md): Spotify playlists/controls and optional direct playback.
+- [Orders](kindle-orders.md): private delivery summaries from an owner-configured sync.
+
+Set the backend `DASHBOARD_TIMEZONE` secret to your IANA zone, and use the same
+`DASHBOARD_TIMEZONE` in Kindle `config.sh`. New integrations default to UTC.
+The Health configuration helper accepts `GOOGLE_HEALTH_TIMEZONE` in its process
+environment. Keep it aligned with the dashboard zone.
+
+Xcode signing is deliberately blank. Choose your own signing team and bundle ID
+before installing the optional iOS companion; update its background-task identifier
+in both `Info.plist` and `AppDelegate.swift` together if you change that ID.

@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <sys/time.h>
 #include <time.h>
+#include "narwal_client.hpp"
 #ifdef __linux__
 #include <linux/input.h>
 #include <linux/fb.h>
@@ -25,8 +26,6 @@ const char* kDefaultToggleUrl = "";
 const char* kDefaultCache = "/mnt/us/documents/kindle-dashboard-data.json";
 const char* kMealCoverPath = "/mnt/us/extensions/kindle-dashboard/assets/meal-planner-cover.pgm";
 const char* kMealCoverLocalPath = "kindle/kual/kindle-dashboard/assets/meal-planner-cover.pgm";
-const char* kChallengeCoverPath = "/mnt/us/extensions/kindle-dashboard/assets/challenge-75-day.pgm";
-const char* kChallengeCoverLocalPath = "kindle/kual/kindle-dashboard/assets/challenge-75-day.pgm";
 const char* kProfileCardPath = "/mnt/us/extensions/kindle-dashboard/assets/profile-placeholder.pgm";
 const char* kProfileCardLocalPath = "kindle/kual/kindle-dashboard/assets/profile-placeholder.pgm";
 const char* kRecipeAssetsPath = "/mnt/us/extensions/kindle-dashboard/assets/recipes";
@@ -55,9 +54,21 @@ int g_active_recipes = 0;
 int g_active_recipe = -1;
 int g_active_recipe_library = 0;
 int g_active_recipe_return_meal_planner = 0;
-int g_active_challenge = 0;
+int g_active_note = 0;
+int g_note_page = 0;
+int g_note_page_count = 1;
+int g_active_calendar = 0;
+int g_calendar_page = 0;
+int g_calendar_page_count = 1;
 int g_invert_images = 0;
 int g_day_offset = 0;
+int g_active_vacuum=0;
+int g_vacuum_settings=0; // 0 = map, 1 = vacuum settings, 2 = rooms, 3 = mop settings
+int g_vacuum_room_page=0;
+
+#include "dashboard_vacuum.inc"
+#include "music_state.inc"
+#include "orders_state.inc"
 
 enum TouchAction {
   kTouchNone = 0,
@@ -69,11 +80,48 @@ enum TouchAction {
   kTouchOpenRecipe = 6,
   kTouchOpenRecipes = 7,
   kTouchHome = 8,
-  kTouchOpenChallenge = 9,
   kTouchOpenMealPlanRecipe = 10,
   kTouchPreviousDay = 11,
   kTouchNextDay = 12,
-  kTouchToday = 13
+  kTouchToday = 13,
+  kTouchOpenNote = 14,
+  kTouchNotePrevious = 15,
+  kTouchNoteNext = 16,
+  kTouchOpenCalendar = 17,
+  kTouchCalendarPrevious = 18,
+  kTouchCalendarNext = 19,
+  kTouchVacuumStart = 20,
+  kTouchVacuumPause = 21,
+  kTouchVacuumResume = 22,
+  kTouchVacuumDock = 23,
+  kTouchVacuumRefresh = 24,
+  kTouchOpenVacuum = 25,
+  kTouchVacuumOptions = 26,
+  kTouchVacuumMap = 27,
+  kTouchVacuumWholeHome = 28,
+  kTouchVacuumRooms = 29,
+  kTouchVacuumOption = 30,
+  kTouchVacuumRoomToggle = 31,
+  kTouchVacuumRoomPrevious = 32,
+  kTouchVacuumRoomNext = 33,
+  kTouchVacuumSetMode = 34,
+  kTouchVacuumDrySettings = 35,
+  kTouchVacuumMopSettings = 36,
+  kTouchOpenMusic = 37,
+  kTouchMusicPlaylist = 38,
+  kTouchMusicPrevious = 39,
+  kTouchMusicPlay = 40,
+  kTouchMusicPause = 41,
+  kTouchMusicNext = 42,
+  kTouchMusicRefresh = 43,
+  kTouchMusicPagePrevious = 44,
+  kTouchMusicPageNext = 45,
+  kTouchOpenOrders = 46,
+  kTouchOrdersActive = 47,
+  kTouchOrdersRecent = 48,
+  kTouchOrdersRefresh = 49,
+  kTouchOrdersPrevious = 50,
+  kTouchOrdersNext = 51
 };
 
 struct Item {
@@ -114,23 +162,25 @@ struct RecipeRecord {
   int rating_tenths;
 };
 
+struct CalendarEntry {
+  char title[641];
+  char time[100];
+  char location[401];
+};
+
 struct Dashboard {
+  char quick_note[16001];
+  int note_available;
+  char calendar_status[24];
+  char calendar_date[16];
+  int calendar_truncated;
+  CalendarEntry calendar_events[100];
+  int calendar_count;
   char generated_at[40];
   char version[32];
   int steps;
-  int calories;
-  int protein_g;
-  int challenge_day;
-  int water_tenths;
-  int water_target_tenths;
-  int sleep_tenths;
-  int sleep_target_tenths;
-  int workouts;
-  int workout_target;
   int steps_target;
-  int calories_target;
   char steps_unit[16];
-  char calories_unit[16];
   List lists[kMaxLists];
   int list_count;
   RecipeRecord recipes[kMaxRecipes];
@@ -147,6 +197,7 @@ struct Options {
   char toggle_token[160];
   char cache[256];
   char render_only[256];
+  char orders_render[256];
   char view[32];
   char dump_pgm[256];
   char save_pgm[256];
@@ -344,7 +395,7 @@ const char* findKeyInRange(const char* start, const char* end, const char* key) 
   return NULL;
 }
 
-int parseJsonString(const char* cursor, char* out, size_t out_size, const char** after) {
+int parseJsonString(const char* cursor, char* out, size_t out_size, const char** after, int preserve_newlines = 0) {
   cursor = skipWhitespace(cursor);
   if (!cursor || *cursor != '"') return 0;
   cursor++;
@@ -353,7 +404,7 @@ int parseJsonString(const char* cursor, char* out, size_t out_size, const char**
     char ch = *cursor++;
     if (ch == '\\') {
       ch = *cursor++;
-      if (ch == 'n') ch = ' ';
+      if (ch == 'n') ch = preserve_newlines ? '\n' : ' ';
       else if (ch == 'r') ch = ' ';
       else if (ch == 't') ch = ' ';
       else if (ch == 'u') {
@@ -552,30 +603,52 @@ int parseMealPlan(const char* json, Dashboard* dashboard) {
   return 1;
 }
 
+void parseWidgets(const char* json, Dashboard* dashboard) {
+  const char* note = findKeyInRange(json, NULL, "quick_note");
+  if (note && *note == '{') {
+    const char* end = matchingClose(note, '}');
+    const char* value = end ? findKeyInRange(note, end, "text") : NULL;
+    if (value) dashboard->note_available = parseJsonString(value, dashboard->quick_note, sizeof(dashboard->quick_note), NULL, 1);
+  }
+  const char* calendar = findKeyInRange(json, NULL, "calendar");
+  copyText(dashboard->calendar_status, sizeof(dashboard->calendar_status), "not_connected");
+  copyText(dashboard->calendar_date, sizeof(dashboard->calendar_date), dashboard->generated_at);
+  dashboard->calendar_date[10] = '\0';
+  if (!calendar || *calendar != '{') return;
+  const char* end = matchingClose(calendar, '}');
+  if (!end) return;
+  extractString(calendar, end, "status", dashboard->calendar_status, sizeof(dashboard->calendar_status), "unavailable");
+  extractString(calendar, end, "date", dashboard->calendar_date, sizeof(dashboard->calendar_date), dashboard->calendar_date);
+  dashboard->calendar_truncated = extractBool(calendar, end, "truncated", 0);
+  const char* events = findKeyInRange(calendar, end, "events");
+  if (!events || *events != '[') return;
+  const char* events_end = matchingClose(events, ']');
+  if (!events_end) return;
+  const char* cursor = events + 1;
+  while (cursor < events_end && dashboard->calendar_count < 100) {
+    const char* item = strchr(cursor, '{');
+    if (!item || item >= events_end) break;
+    const char* item_end = matchingClose(item, '}');
+    if (!item_end || item_end > events_end) break;
+    CalendarEntry* event = &dashboard->calendar_events[dashboard->calendar_count++];
+    extractString(item, item_end, "title", event->title, sizeof(event->title), "Untitled event");
+    extractString(item, item_end, "time", event->time, sizeof(event->time), "");
+    extractString(item, item_end, "location", event->location, sizeof(event->location), "");
+    cursor = item_end + 1;
+  }
+}
+
 int parseDashboard(const char* json, Dashboard* dashboard) {
   memset(dashboard, 0, sizeof(*dashboard));
   copyText(dashboard->steps_unit, sizeof(dashboard->steps_unit), "steps");
-  copyText(dashboard->calories_unit, sizeof(dashboard->calories_unit), "kcal");
 
   if (!json || !extractBool(json, NULL, "ok", 0)) return 0;
   extractString(json, NULL, "generated_at", dashboard->generated_at, sizeof(dashboard->generated_at), "unknown");
   extractString(json, NULL, "version", dashboard->version, sizeof(dashboard->version), "");
+  parseWidgets(json, dashboard);
   dashboard->steps = extractInt(json, NULL, "steps", 0);
-  dashboard->calories = extractInt(json, NULL, "calories", 0);
-  dashboard->protein_g = extractInt(json, NULL, "protein_g", 0);
-  dashboard->challenge_day = extractInt(json, NULL, "day", 1);
-  if (dashboard->challenge_day < 1) dashboard->challenge_day = 1;
-  if (dashboard->challenge_day > 75) dashboard->challenge_day = 75;
-  dashboard->water_tenths = extractScaledInt(json, NULL, "water_l", 10, 0);
-  dashboard->water_target_tenths = extractScaledInt(json, NULL, "water_target_l", 10, 30);
-  dashboard->sleep_tenths = extractScaledInt(json, NULL, "sleep_hours", 10, 0);
-  dashboard->sleep_target_tenths = extractScaledInt(json, NULL, "sleep_target_hours", 10, 80);
-  dashboard->workouts = extractInt(json, NULL, "workouts", 0);
-  dashboard->workout_target = extractInt(json, NULL, "workout_target", 2);
   dashboard->steps_target = extractInt(json, NULL, "steps_target", 10000);
-  dashboard->calories_target = extractInt(json, NULL, "calories_target", 2000);
   extractString(json, NULL, "steps_unit", dashboard->steps_unit, sizeof(dashboard->steps_unit), "steps");
-  extractString(json, NULL, "calories_unit", dashboard->calories_unit, sizeof(dashboard->calories_unit), "kcal");
 
   const char* lists_value = findKeyInRange(json, NULL, "lists");
   if (!lists_value || *lists_value != '[') return 1;
@@ -773,10 +846,9 @@ int renderLines(const Dashboard* dashboard, const char* status, char lines[][96]
   addRule(lines, &count);
   addSectionTitle(lines, &count, "Health");
   addMetric(lines, &count, "STEPS", dashboard->steps, dashboard->steps_target, dashboard->steps_unit);
-  addMetric(lines, &count, "CAL", dashboard->calories, dashboard->calories_target, dashboard->calories_unit);
   addRule(lines, &count);
   for (int i = 0; i < dashboard->list_count; i++) addList(lines, &count, &dashboard->lists[i]);
-  addCardText(lines, &count, " Telegram updates lists");
+  addCardText(lines, &count, " Assistant updates lists");
   addRule(lines, &count);
   return count;
 }
@@ -885,6 +957,9 @@ unsigned char glyphRow(char ch, int row) {
     case ' ': return 0;
     case '/': { static const unsigned char g[7] = {1,1,2,4,8,16,16}; return g[row]; }
     case ':': { static const unsigned char g[7] = {0,4,4,0,4,4,0}; return g[row]; }
+    case ';': { static const unsigned char g[7] = {0,4,4,0,4,4,8}; return g[row]; }
+    case '(': { static const unsigned char g[7] = {2,4,8,8,8,4,2}; return g[row]; }
+    case ')': { static const unsigned char g[7] = {8,4,2,2,2,4,8}; return g[row]; }
     case '-': { static const unsigned char g[7] = {0,0,0,31,0,0,0}; return g[row]; }
     case '_': { static const unsigned char g[7] = {0,0,0,0,0,0,31}; return g[row]; }
     case '.': { static const unsigned char g[7] = {0,0,0,0,0,12,12}; return g[row]; }
@@ -1219,7 +1294,7 @@ void drawBitmapDashboard(Canvas* canvas, const Dashboard* dashboard, const char*
 void clearTouchRegions();
 void addTouchRegion(Rect rect, TouchAction action, int list_index, int item_index, const char* item_id, int item_done);
 
-void drawRadialMetric(Canvas* canvas, int x, int y, int w, int h, const char* label, int value, int target, const char* unit) {
+[[maybe_unused]] void drawRadialMetric(Canvas* canvas, int x, int y, int w, int h, const char* label, int value, int target, const char* unit) {
   strokeRect(canvas, x, y, w, h, 2, 0);
   const int percent = target > 0 ? (value * 100) / target : 0;
   const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
@@ -1242,17 +1317,10 @@ void drawRadialMetric(Canvas* canvas, int x, int y, int w, int h, const char* la
   char metric[80];
   formatNumber(value, value_text, sizeof(value_text));
   formatNumber(target, target_text, sizeof(target_text));
-  const int metric_scale = w < 260 ? 2 : 3;
   if (w < 260) snprintf(metric, sizeof(metric), "%s / %s", value_text, target_text);
   else snprintf(metric, sizeof(metric), "%s / %s %s", value_text, target_text, unit);
+  const int metric_scale = textWidth(metric, 3) <= w - 18 ? 3 : 2;
   drawTextCentered(canvas, cx, y + h - 38, w - 18, metric, metric_scale, 0);
-}
-
-void formatTenths(int value, char* out, size_t size) {
-  const int whole = value / 10;
-  const int fraction = value < 0 ? -(value % 10) : value % 10;
-  if (fraction == 0) snprintf(out, size, "%d", whole);
-  else snprintf(out, size, "%d.%d", whole, fraction);
 }
 
 void drawStarIcon(Canvas* canvas, int x, int y, int scale, int filled) {
@@ -1299,83 +1367,6 @@ void drawStarRating(Canvas* canvas, int x, int y, int rating_tenths, int scale) 
   for (int i = 0; i < 5; i++) {
     drawStarIcon(canvas, x + i * (star_w + gap), y, scale, i < filled);
   }
-}
-
-void drawRadialMetricTenths(Canvas* canvas, int x, int y, int w, int h, const char* label, int value, int target, const char* unit) {
-  strokeRect(canvas, x, y, w, h, 2, 0);
-  const int percent = target > 0 ? (value * 100) / target : 0;
-  const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
-  const int min_side = w < h ? w : h;
-  const int radius = w < 160 ? min_side / 4 : min_side / 3;
-  const int ring_thickness = w < 160 ? 10 : 14;
-  const int percent_scale = w < 160 ? 3 : 4;
-  const int cx = x + w / 2;
-  const int cy = y + h / 2 - 18;
-  circleTrack(canvas, cx, cy, radius, ring_thickness);
-  circleRing(canvas, cx, cy, radius, ring_thickness, clamped, 0);
-
-  char percent_text[24];
-  snprintf(percent_text, sizeof(percent_text), "%d%%", clamped);
-  drawTextCentered(canvas, cx, cy - 21, 132, percent_text, percent_scale, 0);
-  drawTextCentered(canvas, cx, cy + 24, 132, label, 2, 0);
-
-  char value_text[32];
-  char target_text[32];
-  char metric[80];
-  formatTenths(value, value_text, sizeof(value_text));
-  formatTenths(target, target_text, sizeof(target_text));
-  const int metric_scale = w < 260 ? 2 : 3;
-  if (w < 260) snprintf(metric, sizeof(metric), "%s / %s", value_text, target_text);
-  else snprintf(metric, sizeof(metric), "%s / %s %s", value_text, target_text, unit);
-  drawTextCentered(canvas, cx, y + h - 38, w - 18, metric, metric_scale, 0);
-}
-
-void drawChallengeStreakCard(Canvas* canvas, int x, int y, int w, int h, int current_day) {
-  strokeRect(canvas, x, y, w, h, 3, 0);
-  const int title_scale = textWidth("STREAK", 4) <= w - 24 ? 4 : 3;
-  drawTextCentered(canvas, x + w / 2, y + 20, w - 24, "STREAK", title_scale, 0);
-  line(canvas, x + 14, y + 62, x + w - 14, y + 62, 2, 0);
-
-  char day_text[32];
-  snprintf(day_text, sizeof(day_text), "%d / 75", current_day);
-  drawTextCentered(canvas, x + w / 2, y + 84, w - 24, day_text, 3, 0);
-
-  const int columns = 5;
-  const int rows = 15;
-  const int min_gap = 3;
-  const int max_grid_w = w - 24;
-  const int max_grid_h = h - 172;
-  int square = (max_grid_h - (rows - 1) * min_gap) / rows;
-  const int square_by_w = max_grid_w / columns;
-  if (square > square_by_w) square = square_by_w;
-  if (square > 7) square -= 3;
-  else if (square > 5) square -= 2;
-  if (square < 4) square = 4;
-  int gap_x = columns > 1 ? (max_grid_w - columns * square) / (columns - 1) : 0;
-  if (gap_x < min_gap) gap_x = min_gap;
-  const int gap_y = min_gap;
-  const int grid_h = rows * square + (rows - 1) * gap_y;
-  const int grid_x = x + 12;
-  const int grid_y = y + 132 + (max_grid_h - grid_h) / 2;
-  const int clamped_day = current_day < 1 ? 1 : (current_day > 75 ? 75 : current_day);
-
-  for (int day = 1; day <= 75; day++) {
-    const int index = day - 1;
-    const int column = index % columns;
-    const int row = index / columns;
-    const int cell_x = grid_x + column * (square + gap_x);
-    const int cell_y = grid_y + row * (square + gap_y);
-    const int completed = day <= clamped_day;
-    const int current = day == clamped_day;
-    if (completed) {
-      fillRect(canvas, cell_x, cell_y, square, square, 0);
-    } else {
-      fillRect(canvas, cell_x, cell_y, square, square, current ? 212 : 244);
-      strokeRect(canvas, cell_x, cell_y, square, square, current ? 2 : 1, 0);
-    }
-  }
-
-  drawTextCentered(canvas, x + w / 2, y + h - 38, w - 24, "75 MEDIUM", 2, 0);
 }
 
 void drawImageCard(Canvas* canvas, int x, int y, int w, int h, const char* image_path, const char* fallback_path) {
@@ -1431,27 +1422,42 @@ void drawListCard(Canvas* canvas, int x, int y, int w, int h, const List* list, 
   }
 }
 
-void drawMealPlannerTile(Canvas* canvas, int x, int y, int w, int h) {
+void drawMealPlannerTile(Canvas* canvas, int x, int y, int w, int h, const Dashboard* dashboard) {
   strokeRect(canvas, x, y, w, h, 3, 0);
   Rect tile_rect = {x, y, w, h};
   addTouchRegion(tile_rect, kTouchOpenMealPlanner, -1, -1, "", 0);
-  drawPgmImageCover(canvas, x + 3, y + 3, w - 6, h - 6, kMealCoverPath, kMealCoverLocalPath, framebufferInvertForVisibleImage(0));
-  fillRect(canvas, x + 3, y + 3, w - 6, 50, 255);
   line(canvas, x + 10, y + 53, x + w - 10, y + 53, 2, 0);
   drawTextCentered(canvas, x + w / 2, y + 14, w - 24, "MEAL PLANNER", 4, 0);
-}
-
-void drawChallengeTile(Canvas* canvas, int x, int y, int size) {
-  strokeRect(canvas, x, y, size, size, 3, 0);
-  Rect tile_rect = {x, y, size, size};
-  addTouchRegion(tile_rect, kTouchOpenChallenge, -1, -1, "", 0);
-  const int art_x = x + 3;
-  const int art_y = y + 3;
-  const int art_w = size - 6;
-  const int art_h = size - 6;
-  if (art_h > 24) {
-    drawPgmImageCover(canvas, art_x, art_y, art_w, art_h, kChallengeCoverPath, kChallengeCoverLocalPath, framebufferInvertForVisibleImage(0));
+  if (dashboard->meal_plan_count == 0) {
+    drawTextWrapped(canvas, x + 20, y + 76, w - 40, "NO MEALS PLANNED", 3, 0, 2);
+    drawTextCentered(canvas, x + w / 2, y + h - 30, w - 24, "TAP TO PLAN", 2, 0);
+    return;
   }
+
+  const int row_h = 88;
+  const int thumbnail = w < 420 ? 64 : 76;
+  const int capacity = (h - 92) / row_h;
+  const int shown = dashboard->meal_plan_count < capacity ? dashboard->meal_plan_count : capacity;
+  for (int i = 0; i < shown; i++) {
+    const int recipe_index = dashboard->meal_plan_recipe_indices[i];
+    if (recipe_index < 0 || recipe_index >= dashboard->recipe_count) continue;
+    const RecipeRecord* recipe = &dashboard->recipes[recipe_index];
+    const int row_y = y + 66 + i * row_h;
+    drawRecipeLocalImage(canvas, x + 16, row_y, thumbnail, thumbnail, recipe);
+    const int text_x = x + 16 + thumbnail + 16;
+    const int text_w = x + w - 16 - text_x;
+    drawTextWrapped(canvas, text_x, row_y, text_w, recipe->title, 2, 0, 2);
+    char calories[32];
+    snprintf(calories, sizeof(calories), "%d KCAL", recipe->calories);
+    drawTextClipped(canvas, text_x, row_y + 40, text_w, calories, 2, 0);
+    char macros[64];
+    snprintf(macros, sizeof(macros), "P%dG  C%dG  F%dG", recipe->protein, recipe->carbs, recipe->fat);
+    drawTextClipped(canvas, text_x, row_y + 62, text_w, macros, 2, 0);
+  }
+  char hint[64];
+  if (shown < dashboard->meal_plan_count) snprintf(hint, sizeof(hint), "+%d MORE // TAP TO OPEN", dashboard->meal_plan_count - shown);
+  else copyText(hint, sizeof(hint), "TAP TO OPEN");
+  drawTextCentered(canvas, x + w / 2, y + h - 28, w - 24, hint, 2, 0);
 }
 
 void drawChevron(Canvas* canvas, const Rect& rect, int direction) {
@@ -1577,7 +1583,7 @@ void drawMealPlannerDashboard(Canvas* canvas, const Dashboard* dashboard, const 
     Rect empty_rect = {row_x, first_y, row_w, 118};
     strokeRect(canvas, empty_rect.x, empty_rect.y, empty_rect.w, empty_rect.h, 2, 0);
     drawTextClipped(canvas, empty_rect.x + 18, empty_rect.y + 22, empty_rect.w - 36, "NO MEALS PLANNED", 4, 0);
-    drawTextClipped(canvas, empty_rect.x + 18, empty_rect.y + 66, empty_rect.w - 36, "SET TODAY'S MEAL PLAN VIA TELEGRAM", 2, 0);
+    drawTextClipped(canvas, empty_rect.x + 18, empty_rect.y + 66, empty_rect.w - 36, "SET TODAY'S MEAL PLAN WITH MUSE", 2, 0);
     return;
   }
   for (int i = 0; i < dashboard->meal_plan_count; i++) {
@@ -1830,50 +1836,16 @@ void drawFullListDashboard(Canvas* canvas, const Dashboard* dashboard, int list_
   }
 }
 
-void drawChallengeDashboard(Canvas* canvas, const Dashboard* dashboard, const char* status) {
-  clearCanvas(canvas, 255);
-  clearTouchRegions();
-  g_last_screen_width = canvas->width;
-  g_last_screen_height = canvas->height;
-  const int shell_w = canvas->width;
-  const int shell_x = 0;
-  const int shell_y = kKindleStatusBarHeight;
-  const int shell_h = canvas->height - shell_y;
-  strokeRect(canvas, shell_x, shell_y, shell_w, shell_h, 3, 0);
-  drawTopHeader(canvas, dashboard, status, shell_x, shell_y, shell_w);
-
-  const int sub_y = shell_y + 10 + 132 + 8;
-  drawSubHeader(canvas, shell_x, sub_y, shell_w, "75 DAY CHALLENGE");
-  char day_text[40];
-  snprintf(day_text, sizeof(day_text), "DAY %d // CURRENT DAY", dashboard->challenge_day);
-  drawTextClipped(canvas, shell_x + 36, sub_y + 88, shell_w - 72, day_text, 3, 0);
-
-  const int gap = 10;
-  const int content_x = shell_x + 18;
-  const int content_y = sub_y + 132;
-  const int content_w = shell_w - 36;
-  const int content_h = shell_y + shell_h - content_y - 18;
-  const int center_w = (content_w - gap * 2) / 4;
-  const int side_w = (content_w - center_w - gap * 2) / 2;
-  const int left_x = content_x;
-  const int center_x = left_x + side_w + gap;
-  const int right_x = center_x + center_w + gap;
-  const int card_h = (content_h - gap * 2) / 3;
-
-  drawRadialMetric(canvas, left_x, content_y, side_w, card_h, "PROTEIN", dashboard->protein_g, 100, "g");
-  drawRadialMetricTenths(canvas, left_x, content_y + card_h + gap, side_w, card_h, "WATER", dashboard->water_tenths, dashboard->water_target_tenths, "L");
-  drawRadialMetricTenths(canvas, left_x, content_y + (card_h + gap) * 2, side_w, card_h, "SLEEP", dashboard->sleep_tenths, dashboard->sleep_target_tenths, "h");
-  drawChallengeStreakCard(canvas, center_x, content_y, center_w, content_h, dashboard->challenge_day);
-  drawRadialMetric(canvas, right_x, content_y, side_w, card_h, "WORKOUT", dashboard->workouts, dashboard->workout_target, "done");
-  drawRadialMetric(canvas, right_x, content_y + card_h + gap, side_w, card_h, "STEPS", dashboard->steps, dashboard->steps_target, dashboard->steps_unit);
-  drawRadialMetric(canvas, right_x, content_y + (card_h + gap) * 2, side_w, card_h, "CALORIES", dashboard->calories, dashboard->calories_target, dashboard->calories_unit);
-}
+#include "dashboard_widgets.inc"
+#include "music_views.inc"
+#include "orders_views.inc"
 
 void drawCurrentDashboard(Canvas* canvas, const Dashboard* dashboard, const char* status) {
-  if (g_active_challenge) {
-    drawChallengeDashboard(canvas, dashboard, status);
-    return;
-  }
+  if (g_active_orders) { drawOrdersPage(canvas, dashboard, status); return; }
+  if (g_active_music) { drawMusicPage(canvas, dashboard, status); return; }
+  if(g_active_vacuum) { drawVacuumPage(canvas,dashboard,status); return; }
+  if (g_active_note) { drawQuickNotePage(canvas, dashboard, status); return; }
+  if (g_active_calendar) { drawCalendarPage(canvas, dashboard, status); return; }
   if (g_active_recipe >= 0) {
     if (g_active_recipe_library) drawRecipeRecordDashboard(canvas, dashboard, status, g_active_recipe);
     else drawRecipeDashboard(canvas, dashboard, status, g_active_recipe);
@@ -1930,11 +1902,15 @@ void addTouchRegion(Rect rect, TouchAction action, int list_index, int item_inde
   region->item_done = item_done;
 }
 
-[[maybe_unused]] int applyTouchAt(int x, int y) {
+[[maybe_unused]] int applyTouchAt(int x, int y, bool allow_vacuum=true) {
   for (int i = g_touch_region_count - 1; i >= 0; i--) {
     TouchRegion* region = &g_touch_regions[i];
     if (!containsPoint(&region->rect, x, y)) continue;
-    g_pending_action = region->action;
+    // Physical appliance commands require the original calibrated touch position.
+    // Legacy mirrored-coordinate retries are kept for existing navigation only.
+    const bool command = (region->action>=kTouchVacuumStart && region->action<=kTouchVacuumRefresh) ||
+      (region->action>=kTouchMusicPlaylist && region->action<=kTouchMusicNext);
+    g_pending_action = command && !allow_vacuum ? kTouchNone : region->action;
     g_pending_list_index = region->list_index;
     g_pending_recipe_index = region->item_index;
     copyText(g_pending_item_id, sizeof(g_pending_item_id), region->item_id);
@@ -1976,35 +1952,36 @@ void drawBitmapDashboard(Canvas* canvas, const Dashboard* dashboard, const char*
   const int stat_h = shell_h < 900 ? 220 : 252;
   const int stat_w = (shell_w - 20 - gap * 2) / 3;
   drawImageCard(canvas, shell_x + 10, stat_y, stat_w, stat_h, kProfileCardPath, kProfileCardLocalPath);
-  drawRadialMetric(canvas, shell_x + 10 + stat_w + gap, stat_y, stat_w, stat_h, "STEPS", dashboard->steps, dashboard->steps_target, dashboard->steps_unit);
-  drawRadialMetric(canvas, shell_x + 10 + (stat_w + gap) * 2, stat_y, stat_w, stat_h, "CALORIES", dashboard->calories, dashboard->calories_target, dashboard->calories_unit);
+  drawOrdersTile(canvas, shell_x + 10 + stat_w + gap, stat_y, stat_w, stat_h);
+
+  drawMusicTile(canvas, shell_x + 10 + (stat_w + gap) * 2, stat_y, stat_w, stat_h);
 
   const int footer_h = 44;
   const int lists_y = stat_y + stat_h + gap;
   const int lists_h = shell_y + shell_h - lists_y - footer_h - gap - 10;
   const int list_w = (shell_w - 20 - gap) / 2;
   if (dashboard->list_count > 0) {
-    int challenge_side = list_w;
-    if (lists_h < challenge_side + 128) challenge_side = lists_h - 128;
-    if (challenge_side < 160) challenge_side = 160;
-    const int challenge_gap = gap;
-    const int chores_h = lists_h - challenge_side - challenge_gap;
+    int vacuum_h = list_w;
+    if (lists_h < vacuum_h + 128) vacuum_h = lists_h - 128;
+    if (vacuum_h < 160) vacuum_h = 160;
+    const int chores_h = lists_h - vacuum_h - gap;
     drawListCard(canvas, shell_x + 10, lists_y, list_w, chores_h, &dashboard->lists[0], 0);
-    drawChallengeTile(canvas, shell_x + 10, lists_y + chores_h + challenge_gap, challenge_side);
+    drawVacuumTile(canvas, shell_x + 10, lists_y + chores_h + gap, list_w, vacuum_h);
   }
   if (dashboard->list_count > 1) {
     const int right_x = shell_x + 10 + list_w + gap;
-    int challenge_side = list_w;
-    if (lists_h < challenge_side + 128) challenge_side = lists_h - 128;
-    if (challenge_side < 160) challenge_side = 160;
-    int meal_tile_h = lists_h - challenge_side - gap;
+    int grocery_card_h = list_w;
+    if (lists_h < grocery_card_h + 128) grocery_card_h = lists_h - 128;
+    if (grocery_card_h < 160) grocery_card_h = 160;
+    int meal_tile_h = lists_h - grocery_card_h - gap;
+    if (meal_tile_h < 190) meal_tile_h = 190;
     const int grocery_h = lists_h - meal_tile_h - gap;
-    drawMealPlannerTile(canvas, right_x, lists_y, list_w, meal_tile_h);
+    drawMealPlannerTile(canvas, right_x, lists_y, list_w, meal_tile_h, dashboard);
     drawListCard(canvas, right_x, lists_y + meal_tile_h + gap, list_w, grocery_h, &dashboard->lists[1], 1);
   }
 
   doubleRect(canvas, shell_x + 10, shell_y + shell_h - footer_h - 10, shell_w - 20, footer_h, 0);
-  drawTextClipped(canvas, shell_x + 28, shell_y + shell_h - footer_h - 2, shell_w - 56, "TELEGRAM UPDATES LISTS // AUTO REFRESH 15M", 3, 0);
+  drawTextClipped(canvas, shell_x + 28, shell_y + shell_h - footer_h - 2, shell_w - 56, "LISTS // AUTO REFRESH ENABLED", 3, 0);
 }
 
 int writePgm(const char* path, const Canvas* canvas) {
@@ -2015,6 +1992,17 @@ int writePgm(const char* path, const Canvas* canvas) {
   const int ok = fwrite(canvas->pixels, 1, bytes, file) == bytes;
   fclose(file);
   return ok;
+}
+
+// A gesture that opens a page cannot turn into an appliance command when the
+// new controls appear beneath the held finger. One physical command per contact.
+[[maybe_unused]] bool allowContactAction(int action,int* first,int* seen,int* fired,bool contact_active=true) {
+  bool physical=(action>=kTouchVacuumStart && action<=kTouchVacuumRefresh) ||
+    (action>=kTouchMusicPlaylist && action<=kTouchMusicNext);
+  if(physical && (!contact_active || *fired || (*seen && *first!=action))) return false;
+  if(!*seen) { *seen=1; *first=action; }
+  if(physical) *fired=1;
+  return true;
 }
 
 #ifdef __linux__
@@ -2035,18 +2023,14 @@ struct TouchInput {
   int has_x;
   int has_y;
   int was_down;
-  long last_action_ms;
+  int contact_action,contact_seen,physical_fired,release_pending;
+  long long last_action_ms;
 };
 
-long nowMs() {
-  timeval tv;
-  gettimeofday(&tv, NULL);
-  return tv.tv_sec * 1000L + tv.tv_usec / 1000L;
-}
-
-int applyTouchWithDebounce(TouchInput* input) {
-  const long now = nowMs();
-  if (now - input->last_action_ms < 700) return 0;
+int applyTouchWithDebounce(TouchInput* input,bool contact_active=true) {
+  if(g_pending_action!=kTouchNone) return 0;
+  const long long now = monotonicMs();
+  if (input->last_action_ms > 0 && now - input->last_action_ms < 700) return 0;
   const int w = g_last_screen_width;
   const int h = g_last_screen_height;
   const int x = input->x;
@@ -2056,15 +2040,18 @@ int applyTouchWithDebounce(TouchInput* input) {
     g_pending_action = kTouchExit;
     setPendingTouchRect(exitButtonRectForScreen(w, h));
   } else if (!applyTouchAt(x, y) &&
-             !applyTouchAt(w - 1 - x, y) &&
-             !applyTouchAt(x, h - 1 - y) &&
-             !applyTouchAt(w - 1 - x, h - 1 - y) &&
-             !applyTouchAt((static_cast<long>(y) * w) / (h > 1 ? h : 1), (static_cast<long>(x) * h) / (w > 1 ? w : 1)) &&
-             !applyTouchAt(w - 1 - (static_cast<long>(y) * w) / (h > 1 ? h : 1), (static_cast<long>(x) * h) / (w > 1 ? w : 1)) &&
-             !applyTouchAt((static_cast<long>(y) * w) / (h > 1 ? h : 1), h - 1 - (static_cast<long>(x) * h) / (w > 1 ? w : 1)) &&
-             !applyTouchAt(w - 1 - (static_cast<long>(y) * w) / (h > 1 ? h : 1), h - 1 - (static_cast<long>(x) * h) / (w > 1 ? w : 1))) {
+             !applyTouchAt(w - 1 - x, y, false) &&
+             !applyTouchAt(x, h - 1 - y, false) &&
+             !applyTouchAt(w - 1 - x, h - 1 - y, false) &&
+             !applyTouchAt((static_cast<long>(y) * w) / (h > 1 ? h : 1), (static_cast<long>(x) * h) / (w > 1 ? w : 1), false) &&
+             !applyTouchAt(w - 1 - (static_cast<long>(y) * w) / (h > 1 ? h : 1), (static_cast<long>(x) * h) / (w > 1 ? w : 1), false) &&
+             !applyTouchAt((static_cast<long>(y) * w) / (h > 1 ? h : 1), h - 1 - (static_cast<long>(x) * h) / (w > 1 ? w : 1), false) &&
+             !applyTouchAt(w - 1 - (static_cast<long>(y) * w) / (h > 1 ? h : 1), h - 1 - (static_cast<long>(x) * h) / (w > 1 ? w : 1), false)) {
     fprintf(stderr, "input=miss x=%d y=%d width=%d height=%d regions=%d\n", x, y, w, h, g_touch_region_count);
     return 0;
+  }
+  if(!allowContactAction(g_pending_action,&input->contact_action,&input->contact_seen,&input->physical_fired,contact_active)) {
+    g_pending_action=kTouchNone; g_pending_touch_rect_valid=0; return 0;
   }
   g_pending_touch_x = x;
   g_pending_touch_y = y;
@@ -2154,18 +2141,24 @@ int pollExitTouch(TouchInput* input) {
           input->was_down = 1;
         } else if (event.code == ABS_MT_TRACKING_ID) {
           input->was_down = event.value >= 0 ? 1 : 0;
+          if(event.value>=0) { input->contact_action=0; input->contact_seen=0; input->physical_fired=0; input->release_pending=0; }
+          else input->release_pending=1;
         }
       } else if (event.type == EV_KEY && (event.code == BTN_TOUCH || event.code == BTN_LEFT)) {
-        if (event.value > 0) input->was_down = 1;
+        if (event.value > 0) { input->was_down = 1; input->contact_action=0; input->contact_seen=0; input->physical_fired=0; input->release_pending=0; }
         if (event.value == 0 && input->was_down && input->has_x && input->has_y) {
           input->was_down = 0;
-          if (applyTouchWithDebounce(input)) {
+          int applied=applyTouchWithDebounce(input,true);
+          input->contact_action=0; input->contact_seen=0; input->physical_fired=0; input->release_pending=0;
+          if (applied) {
             fprintf(stderr, "input=action tap action=%d x=%d y=%d\n", static_cast<int>(g_pending_action), input->x, input->y);
             return 1;
           }
         }
       } else if (event.type == EV_SYN && input->has_x && input->has_y) {
-        if (applyTouchWithDebounce(input)) {
+        int applied=applyTouchWithDebounce(input,input->was_down || input->release_pending);
+        if(!input->was_down) { input->contact_action=0; input->contact_seen=0; input->physical_fired=0; input->release_pending=0; }
+        if (applied) {
           fprintf(stderr, "input=action touch action=%d x=%d y=%d\n", static_cast<int>(g_pending_action), input->x, input->y);
           return 1;
         }
@@ -2485,40 +2478,27 @@ int renderViaFbink(const Dashboard* dashboard, const char* status, const char* s
 #endif
 }
 
-int fetchToCache(const char* url, const char* read_token, const char* cache) {
+int fetchToCache(const char* url, const char* cache, const char* token, const char* read_token) {
   const long long started = monotonicMs();
   char tmp[320];
   snprintf(tmp, sizeof(tmp), "%s.tmp", cache);
   char quoted_tmp[400];
   char quoted_url[400];
-  char quoted_header[260];
-  char command[1100];
+  char command[1800];
+  char read_header[220], quoted_read_header[460];
+  snprintf(read_header, sizeof(read_header), "X-Dashboard-Read-Token: %.150s", read_token ? read_token : "");
+  shellQuote(read_header, quoted_read_header, sizeof(quoted_read_header));
+  char header[220];
+  char quoted_header[300];
+  snprintf(header, sizeof(header), "X-Dashboard-Toggle-Token: %.150s", token ? token : "");
+  shellQuote(header, quoted_header, sizeof(quoted_header));
   shellQuote(tmp, quoted_tmp, sizeof(quoted_tmp));
   shellQuote(url, quoted_url, sizeof(quoted_url));
-  char header[200];
-  header[0] = '\0';
-  if (read_token && read_token[0]) {
-    snprintf(header, sizeof(header), "X-Dashboard-Read-Token: %.150s", read_token);
-    shellQuote(header, quoted_header, sizeof(quoted_header));
-  } else {
-    quoted_header[0] = '\0';
-  }
 
   if (commandExists("curl")) {
-    snprintf(command, sizeof(command), "curl -fsSL --connect-timeout 20 --max-time 55 --max-filesize %ld %s%s%s -o %s %s",
-             kMaxDashboardPayloadBytes,
-             quoted_header[0] ? "-H " : "",
-             quoted_header[0] ? quoted_header : "",
-             quoted_header[0] ? " " : "",
-             quoted_tmp,
-             quoted_url);
+    snprintf(command, sizeof(command), "curl -fsSL --connect-timeout 20 --max-time 55 --max-filesize %ld -H %s -H %s -o %s %s", kMaxDashboardPayloadBytes, quoted_read_header, quoted_header, quoted_tmp, quoted_url);
   } else if (commandExists("wget")) {
-    snprintf(command, sizeof(command), "wget -q -T 55 %s%s%s -O %s %s",
-             quoted_header[0] ? "--header=" : "",
-             quoted_header[0] ? quoted_header : "",
-             quoted_header[0] ? " " : "",
-             quoted_tmp,
-             quoted_url);
+    snprintf(command, sizeof(command), "wget -q -T 55 --header=%s --header=%s -O %s %s", quoted_read_header, quoted_header, quoted_tmp, quoted_url);
   } else {
     return 0;
   }
@@ -2679,6 +2659,9 @@ int postToggleItemAsync(const char* toggle_url, const char* toggle_token, const 
   return status == 0;
 }
 
+#include "music_client.inc"
+#include "orders_client.inc"
+
 int handlePendingTouch(const Options* options) {
   const TouchAction action = g_pending_action;
   const int touch_x = g_pending_touch_x;
@@ -2696,8 +2679,26 @@ int handlePendingTouch(const Options* options) {
     return 1;
   }
 
+  if(action>=kTouchVacuumStart && action<=kTouchVacuumRefresh) {
+    narwal::Command command=narwal::Command::Refresh;
+    if(action==kTouchVacuumStart) command=narwal::Command::Start;
+    else if(action==kTouchVacuumPause) command=narwal::Command::Pause;
+    else if(action==kTouchVacuumResume) command=narwal::Command::Resume;
+    else if(action==kTouchVacuumDock) command=narwal::Command::Dock;
+    queueVacuumCommand(command);
+    return 1;
+  }
+
   if (action == kTouchBack) {
+    if (g_active_orders) { g_active_orders = 0; return 1; }
+    if (g_active_music) { g_active_music = 0; musicDetailOpen(false); return 1; }
     fprintf(stderr, "touch=back\n");
+    if(g_active_vacuum) {
+      if(g_vacuum_settings) g_vacuum_settings=0;
+      else { g_active_vacuum=0; vacuumDetailOpen(false); }
+      return 1;
+    }
+    if (g_active_note || g_active_calendar) { g_active_note = 0; g_active_calendar = 0; return 1; }
     if (g_active_recipe >= 0) {
       g_active_recipe = -1;
       if (g_active_recipe_return_meal_planner) {
@@ -2713,8 +2714,6 @@ int handlePendingTouch(const Options* options) {
     } else if (g_active_recipes) {
       g_active_recipes = 0;
       g_active_meal_planner = 1;
-    } else if (g_active_challenge) {
-      g_active_challenge = 0;
     } else {
       g_active_meal_planner = 0;
       g_active_list = -1;
@@ -2723,14 +2722,17 @@ int handlePendingTouch(const Options* options) {
   }
 
   if (action == kTouchHome) {
+    g_active_orders = 0;
+    g_active_music = 0; musicDetailOpen(false);
+    g_active_vacuum=0; g_vacuum_settings=0; vacuumDetailOpen(false);
     fprintf(stderr, "touch=home\n");
+    g_active_note = 0; g_active_calendar = 0;
     g_active_list = -1;
     g_active_meal_planner = 0;
     g_active_recipes = 0;
     g_active_recipe = -1;
     g_active_recipe_library = 0;
     g_active_recipe_return_meal_planner = 0;
-    g_active_challenge = 0;
     return 1;
   }
 
@@ -2741,7 +2743,6 @@ int handlePendingTouch(const Options* options) {
     g_active_recipe = -1;
     g_active_recipe_library = 0;
     g_active_recipe_return_meal_planner = 0;
-    g_active_challenge = 0;
     g_active_list = g_pending_list_index;
     return 1;
   }
@@ -2753,7 +2754,6 @@ int handlePendingTouch(const Options* options) {
     g_active_recipe = -1;
     g_active_recipe_library = 0;
     g_active_recipe_return_meal_planner = 0;
-    g_active_challenge = 0;
     g_active_meal_planner = 1;
     return 1;
   }
@@ -2761,7 +2761,6 @@ int handlePendingTouch(const Options* options) {
   if (action == kTouchOpenRecipe) {
     fprintf(stderr, "touch=open-recipe index=%d\n", g_pending_recipe_index);
     g_active_list = -1;
-    g_active_challenge = 0;
     if (g_active_recipes) {
       g_active_meal_planner = 0;
       g_active_recipe_library = 1;
@@ -2778,7 +2777,6 @@ int handlePendingTouch(const Options* options) {
   if (action == kTouchOpenMealPlanRecipe) {
     fprintf(stderr, "touch=open-meal-plan-recipe index=%d\n", g_pending_recipe_index);
     g_active_list = -1;
-    g_active_challenge = 0;
     g_active_recipes = 0;
     g_active_meal_planner = 0;
     g_active_recipe_library = 1;
@@ -2794,20 +2792,76 @@ int handlePendingTouch(const Options* options) {
     g_active_recipe = -1;
     g_active_recipe_library = 0;
     g_active_recipe_return_meal_planner = 0;
-    g_active_challenge = 0;
     g_active_recipes = 1;
     return 1;
   }
 
-  if (action == kTouchOpenChallenge) {
-    fprintf(stderr, "touch=open-challenge\n");
-    g_active_list = -1;
-    g_active_meal_planner = 0;
-    g_active_recipes = 0;
-    g_active_recipe = -1;
-    g_active_recipe_library = 0;
-    g_active_recipe_return_meal_planner = 0;
-    g_active_challenge = 1;
+  if(action==kTouchOpenVacuum) {
+    g_active_vacuum=1; g_vacuum_settings=0; g_vacuum_room_page=0; vacuumDetailOpen(true);
+    queueVacuumCommand(narwal::Command::Refresh); return 1;
+  }
+  if(action==kTouchVacuumSetMode) { setVacuumMode(g_pending_recipe_index); return 1; }
+  if(action==kTouchVacuumOptions || action==kTouchVacuumRooms || action==kTouchVacuumDrySettings || action==kTouchVacuumMopSettings) {
+    if(action==kTouchVacuumRooms) g_vacuum_settings=2;
+    else if(action==kTouchVacuumMopSettings) g_vacuum_settings=3;
+    else if(action==kTouchVacuumDrySettings) g_vacuum_settings=1;
+    else g_vacuum_settings=vacuumSnapshot().plan.mode==2 ? 3 : 1;
+    return 1;
+  }
+  if(action==kTouchVacuumWholeHome) { vacuumWholeHome(); return 1; }
+  if(action==kTouchVacuumOption) { cycleVacuumOption(g_pending_recipe_index); return 1; }
+  if(action==kTouchVacuumRoomToggle) { toggleVacuumRoom(g_pending_recipe_index); return 1; }
+  if(action==kTouchVacuumMap) { toggleVacuumRoomAt(touch_x,touch_y); return 1; }
+  if(action==kTouchVacuumRoomPrevious || action==kTouchVacuumRoomNext) {
+    g_vacuum_room_page+=action==kTouchVacuumRoomNext ? 1 : -1; if(g_vacuum_room_page<0) g_vacuum_room_page=0; return 1;
+  }
+
+  if (action == kTouchOpenOrders) {
+    g_active_orders = 1; g_orders_recent = 0; g_orders_page = 0; refreshOrders(); return 1;
+  }
+  if (action == kTouchOrdersActive || action == kTouchOrdersRecent) {
+    g_orders_recent = action == kTouchOrdersRecent; g_orders_page = 0; return 1;
+  }
+  if (action == kTouchOrdersRefresh) { refreshOrders(); return 1; }
+  if (action == kTouchOrdersPrevious || action == kTouchOrdersNext) {
+    g_orders_page += action == kTouchOrdersNext ? 1 : -1;
+    if (g_orders_page < 0) g_orders_page = 0;
+    if (g_orders_page >= g_orders_page_count) g_orders_page = g_orders_page_count - 1;
+    return 1;
+  }
+  if (action == kTouchOpenMusic) {
+    g_active_music = 1; g_music_page = 0; musicDetailOpen(true);
+    queueMusicCommand("refresh");
+    return 1;
+  }
+  if (action >= kTouchMusicPlaylist && action <= kTouchMusicRefresh) {
+    const char* command = action == kTouchMusicPlaylist ? "playlist" : action == kTouchMusicPrevious ? "previous" :
+      action == kTouchMusicPlay ? "play" : action == kTouchMusicPause ? "pause" : action == kTouchMusicNext ? "next" : "refresh";
+    queueMusicCommand(command, action == kTouchMusicPlaylist ? g_pending_recipe_index : -1);
+    return 1;
+  }
+  if (action == kTouchMusicPagePrevious || action == kTouchMusicPageNext) {
+    g_music_page += action == kTouchMusicPageNext ? 1 : -1;
+    if (g_music_page < 0) g_music_page = 0;
+    if (g_music_page >= g_music_page_count) g_music_page = g_music_page_count - 1;
+    return 1;
+  }
+  if (action == kTouchOpenNote || action == kTouchOpenCalendar) {
+    g_active_note = action == kTouchOpenNote;
+    g_active_calendar = action == kTouchOpenCalendar;
+    g_note_page = 0; g_calendar_page = 0;
+    return 1;
+  }
+  if (action == kTouchNotePrevious || action == kTouchNoteNext) {
+    g_note_page += action == kTouchNoteNext ? 1 : -1;
+    if (g_note_page < 0) g_note_page = 0;
+    if (g_note_page >= g_note_page_count) g_note_page = g_note_page_count - 1;
+    return 1;
+  }
+  if (action == kTouchCalendarPrevious || action == kTouchCalendarNext) {
+    g_calendar_page += action == kTouchCalendarNext ? 1 : -1;
+    if (g_calendar_page < 0) g_calendar_page = 0;
+    if (g_calendar_page >= g_calendar_page_count) g_calendar_page = g_calendar_page_count - 1;
     return 1;
   }
 
@@ -2946,16 +3000,10 @@ void* eventWatcherMain(void* raw) {
   }
 
   char quoted_url[400];
-  char quoted_header[260];
   shellQuote(args->events_url, quoted_url, sizeof(quoted_url));
-  char header[200];
-  header[0] = '\0';
-  if (args->read_token[0]) {
-    snprintf(header, sizeof(header), "X-Dashboard-Read-Token: %.150s", args->read_token);
-    shellQuote(header, quoted_header, sizeof(quoted_header));
-  } else {
-    quoted_header[0] = '\0';
-  }
+  char header[220], quoted_header[460];
+  snprintf(header, sizeof(header), "X-Dashboard-Read-Token: %.150s", args->read_token);
+  shellQuote(header, quoted_header, sizeof(quoted_header));
   fprintf(stderr, "events=watching %s\n", args->events_url);
 
   while (g_running) {
@@ -2965,12 +3013,8 @@ void* eventWatcherMain(void* raw) {
       continue;
     }
 
-    char command[900];
-    snprintf(command, sizeof(command), "curl -fsSL --no-buffer --connect-timeout 20 --max-time 65 %s%s%s %s 2>/dev/null",
-             quoted_header[0] ? "-H " : "",
-             quoted_header[0] ? quoted_header : "",
-             quoted_header[0] ? " " : "",
-             quoted_url);
+    char command[1200];
+    snprintf(command, sizeof(command), "curl -fsSL --no-buffer --connect-timeout 20 --max-time 65 -H %s %s 2>/dev/null", quoted_header, quoted_url);
     FILE* stream = popen(command, "r");
     if (!stream) {
       fprintf(stderr, "events=popen_failed\n");
@@ -3015,7 +3059,7 @@ void startEventWatcher(const char* events_url, const char* read_token, int sleep
     return;
   }
   copyText(args->events_url, sizeof(args->events_url), events_url);
-  if (read_token) copyText(args->read_token, sizeof(args->read_token), read_token);
+  copyText(args->read_token, sizeof(args->read_token), read_token ? read_token : "");
   args->sleep_start_minute = sleep_start_minute;
   args->sleep_end_minute = sleep_end_minute;
 
@@ -3107,11 +3151,14 @@ int shouldRepaintCachedTick(int tick) {
 
 int waitForWakeEvent(const Options* options, int seconds, int allow_repaint) {
   for (int elapsed = 1; elapsed <= seconds && g_running; elapsed++) {
+    if (takeOrdersRepaint()) renderCachedPayload(options, "cached/local");
+    if (takeMusicRepaint()) renderCachedPayload(options, "cached/local");
+    if(takeVacuumRepaint()) renderCachedPayload(options,"cached/local");
     if (g_pending_action != kTouchNone) {
       const int touch_result = handlePendingTouch(options);
       if (!g_running) return 0;
       if (touch_result == 2) return 1;
-      if (touch_result == 1) renderCachedPayload(options, "cached/local");
+      if (touch_result == 1) { takeVacuumRepaint(); renderCachedPayload(options, "cached/local"); }
       continue;
     }
     if (g_event_refresh) {
@@ -3138,8 +3185,11 @@ void applyInitialView(const char* view) {
   g_active_recipes = 0;
   g_active_recipe = -1;
   g_active_recipe_library = 0;
-  g_active_challenge = 0;
-  if (strcmp(view, "challenge") == 0) g_active_challenge = 1;
+  if (strcmp(view, "orders") == 0) g_active_orders = 1;
+  else if (strcmp(view, "music") == 0) { g_active_music = 1; musicDetailOpen(true); }
+  else if (strcmp(view, "note") == 0) g_active_note = 1;
+  else if(strcmp(view,"vacuum")==0) { g_active_vacuum=1; vacuumDetailOpen(true); }
+  else if (strcmp(view, "calendar") == 0) g_active_calendar = 1;
   else if (strcmp(view, "recipe") == 0) {
     g_active_recipes = 1;
     g_active_recipe = 0;
@@ -3163,9 +3213,11 @@ void initOptions(Options* options) {
   options->toggle_token[0] = '\0';
   copyText(options->cache, sizeof(options->cache), kDefaultCache);
   options->render_only[0] = '\0';
+  options->orders_render[0] = '\0';
   options->view[0] = '\0';
   options->dump_pgm[0] = '\0';
-  options->save_pgm[0] = '\0';
+  const char* save_pgm=getenv("SAVE_PGM");
+  copyText(options->save_pgm,sizeof(options->save_pgm),save_pgm ? save_pgm : "");
   options->dump_width = kBitmapFallbackWidth;
   options->dump_height = kBitmapFallbackHeight;
   options->interval = kDefaultIntervalSeconds;
@@ -3197,6 +3249,7 @@ int parseOptions(int argc, char** argv, Options* options) {
       g_invert_images = 1;
     }
     else if (strcmp(argv[i], "--render") == 0 && i + 1 < argc) copyText(options->render_only, sizeof(options->render_only), argv[++i]);
+    else if (strcmp(argv[i], "--orders-render") == 0 && i + 1 < argc) copyText(options->orders_render, sizeof(options->orders_render), argv[++i]);
     else if (strcmp(argv[i], "--view") == 0 && i + 1 < argc) copyText(options->view, sizeof(options->view), argv[++i]);
     else if (strcmp(argv[i], "--dump-pgm") == 0 && i + 1 < argc) copyText(options->dump_pgm, sizeof(options->dump_pgm), argv[++i]);
     else if (strcmp(argv[i], "--dump-size") == 0 && i + 1 < argc) {
@@ -3209,7 +3262,7 @@ int parseOptions(int argc, char** argv, Options* options) {
     else if (strcmp(argv[i], "--save-pgm") == 0 && i + 1 < argc) copyText(options->save_pgm, sizeof(options->save_pgm), argv[++i]);
     else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
       printf("Usage: %s [--url URL] [--events-url URL] [--toggle-url URL] [--read-token TOKEN] [--toggle-token TOKEN] [--cache PATH] [--interval SECONDS] [--sleep-window HH:MM-HH:MM|off] [--once] [--invert-images]\n", argv[0]);
-      printf("       %s --render PATH [--view challenge|recipe|meal-recipe|chores|grocery] [--dump-pgm PATH] [--dump-size WIDTHxHEIGHT] [--save-pgm PATH]\n", argv[0]);
+      printf("       %s --render PATH [--orders-render PATH] [--view orders|music|vacuum|note|calendar|recipe|meal-recipe|chores|grocery] [--dump-pgm PATH] [--dump-size WIDTHxHEIGHT] [--save-pgm PATH]\n", argv[0]);
       exit(0);
     } else {
       fprintf(stderr, "Unknown or incomplete argument: %s\n", argv[i]);
@@ -3226,6 +3279,12 @@ int main(int argc, char** argv) {
   if (!parseOptions(argc, argv, &options)) return 1;
 
   if (options.render_only[0]) {
+    if (options.orders_render[0]) {
+      char* orders = readFile(options.orders_render);
+      const bool valid = orders && parseOrders(orders, &g_orders);
+      free(orders);
+      if (!valid) { fprintf(stderr, "Could not parse orders preview\n"); return 1; }
+    }
     applyInitialView(options.view);
     char* payload = readFile(options.render_only);
     if (!payload) {
@@ -3239,7 +3298,11 @@ int main(int argc, char** argv) {
 
   signal(SIGINT, handleSignal);
   signal(SIGTERM, handleSignal);
+  signal(SIGPIPE,SIG_IGN);
   applyInitialView(options.view);
+  startVacuumWorker();
+  if (!options.once) startMusicWorker(&options);
+  if (!options.once) startOrdersWorker(&options);
 
   TouchInput touch;
   initTouchInput(&touch);
@@ -3252,6 +3315,7 @@ int main(int argc, char** argv) {
     int pending_result = 0;
     if (g_pending_action != kTouchNone) pending_result = handlePendingTouch(&options);
     if (!g_running) break;
+    if(pending_result==1) takeVacuumRepaint();
     if (pending_result == 1 && renderCachedPayload(&options, "cached/local")) {
       g_event_refresh = 0;
       if (options.once) break;
@@ -3295,7 +3359,7 @@ int main(int argc, char** argv) {
     }
     char dashboard_url[320];
     buildDashboardUrl(options.url, dashboard_url, sizeof(dashboard_url));
-    const int fetched = fetchToCache(dashboard_url, options.read_token, options.cache);
+    const int fetched = fetchToCache(dashboard_url, options.cache, options.toggle_token, options.read_token);
     if (!renderCachedPayload(&options, fetched ? "live" : "cached/offline")) {
       char lines[kMaxRows][96];
       int count = 0;
@@ -3318,6 +3382,8 @@ int main(int argc, char** argv) {
   }
 
   closeTouchInput(&touch);
+  if (g_music_thread_started) pthread_join(g_music_thread, NULL);
+  if (g_orders_thread_started) pthread_join(g_orders_thread, NULL);
   freePgmCache();
   return 0;
 }

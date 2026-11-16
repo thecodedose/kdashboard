@@ -478,7 +478,7 @@ async function sendTelegramMessage(chatId: string, text: string): Promise<void> 
 
 function sendTelegramMessageInBackground(chatId: string, text: string): void {
   sendTelegramMessage(chatId, text).catch((error) => {
-    console.error(`telegram-webhook reply_error ${errorMessage(error)}`);
+    console.error("telegram-webhook reply_error");
   });
 }
 
@@ -958,7 +958,7 @@ function clampRecipeRating(value: number): number {
 }
 
 function dashboardLocalDate(): string {
-  const timezone = Deno.env.get("DASHBOARD_TIMEZONE") || "Asia/Kolkata";
+  const timezone = Deno.env.get("DASHBOARD_TIMEZONE") || "UTC";
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",

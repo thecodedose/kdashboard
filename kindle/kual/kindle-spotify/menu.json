@@ -1,0 +1,7 @@
+{
+  "items": [{"name":"Spotify on Kindle","priority":13,"items":[
+    {"name":"Start Spotify player","priority":1,"action":"/bin/sh","params":"/mnt/us/extensions/kindle-spotify/start.sh","exitmenu":false},
+    {"name":"Stop Spotify player","priority":2,"action":"/bin/sh","params":"/mnt/us/extensions/kindle-spotify/stop.sh","exitmenu":false},
+    {"name":"Save player diagnostics","priority":3,"action":"/bin/sh","params":"/mnt/us/extensions/kindle-spotify/collect.sh","exitmenu":false}
+  ]}]
+}

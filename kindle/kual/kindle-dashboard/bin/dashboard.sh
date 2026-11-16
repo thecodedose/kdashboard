@@ -3,6 +3,16 @@
 CONFIG="${DASHBOARD_CONFIG:-/mnt/us/extensions/kindle-dashboard/config.sh}"
 [ -f "$CONFIG" ] && . "$CONFIG"
 
+# Reuse the verified direct-vacuum setup; explicit dashboard config wins.
+if [ -z "${NARWAL_HOST:-}" ] && [ -f /mnt/us/extensions/narwal-probe/config.sh ]; then
+  . /mnt/us/extensions/narwal-probe/config.sh
+fi
+export NARWAL_HOST
+NARWAL_IDENTITY_FILE="${NARWAL_IDENTITY_FILE:-/mnt/us/extensions/narwal-probe/identity.txt}"
+export NARWAL_IDENTITY_FILE
+export DASHBOARD_MUSIC_URL
+export DASHBOARD_ORDERS_URL
+
 DASHBOARD_DATA_URL="${DASHBOARD_DATA_URL:-}"
 DASHBOARD_EVENTS_URL="${DASHBOARD_EVENTS_URL:-}"
 DASHBOARD_TOGGLE_URL="${DASHBOARD_TOGGLE_URL:-}"
@@ -12,6 +22,7 @@ CACHE="${CACHE:-/mnt/us/documents/kindle-dashboard-data.json}"
 LOG="${LOG:-/mnt/us/documents/kindle-dashboard-native.log}"
 PIDFILE="${PIDFILE:-/mnt/us/documents/kindle-dashboard-native.pid}"
 SAVE_PGM="${SAVE_PGM:-/mnt/us/documents/kindle-dashboard-last-render.pgm}"
+export SAVE_PGM
 INTERVAL="${INTERVAL:-3600}"
 DASHBOARD_KEEP_AWAKE="${DASHBOARD_KEEP_AWAKE:-1}"
 DASHBOARD_SLEEP_WINDOW="${DASHBOARD_SLEEP_WINDOW:-off}"
@@ -97,12 +108,15 @@ start_dashboard() {
   [ "$INVERT_IMAGES" = "1" ] && image_args="--invert-images"
   save_args=""
   [ -n "$SAVE_PGM" ] && save_args="--save-pgm $SAVE_PGM"
+  # Start the optional direct Spotify player alongside the dashboard.
+  if [ -f /mnt/us/extensions/kindle-spotify/start.sh ]; then
+    /bin/sh /mnt/us/extensions/kindle-spotify/start.sh quiet </dev/null >/dev/null 2>&1 &
+  fi
   nohup "$RUN_APP" \
     --url "$DASHBOARD_DATA_URL" \
     --events-url "$DASHBOARD_EVENTS_URL" \
     --toggle-url "$DASHBOARD_TOGGLE_URL" \
-    --read-token "$DASHBOARD_READ_TOKEN" \
-    --toggle-token "$DASHBOARD_TOGGLE_TOKEN" \
+    --read-token "$DASHBOARD_READ_TOKEN" --toggle-token "$DASHBOARD_TOGGLE_TOKEN" \
     --cache "$CACHE" \
     --interval "$INTERVAL" \
     --sleep-window "$DASHBOARD_SLEEP_WINDOW" \

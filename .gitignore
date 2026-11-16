@@ -68,3 +68,15 @@ Thumbs.db
 .roo/
 .trae/
 .windsurf/
+
+# Private integrations, device identities, inbox summaries and generated assets
+.google-health/
+.google-calendar/
+.spotify/
+.orders/
+output/
+kindle/kual/*/config.sh
+kindle/kual/*/private/
+kindle/kual/*/identity.txt
+kindle/kual/*/narwal-identity.txt
+kindle/kual/*/assets/profile.pgm

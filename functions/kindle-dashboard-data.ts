@@ -12,6 +12,7 @@ type PlannerItem = {
 };
 
 type HealthSummary = {
+  source: string;
   date: string;
   steps: number;
   dietary_energy_kcal: string | number;
@@ -141,12 +142,24 @@ export default async function(req: Request): Promise<Response> {
   }
 
   if (!isAuthorizedDashboardRead(req)) {
-    return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
+    return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+      status: 401, headers: { ...corsHeaders(), "Content-Type": "application/json; charset=utf-8" }
+    });
   }
 
   try {
     const requestedDate = dashboardRequestedDate(req);
     const payload = await loadDashboardPayload(requestedDate);
+    const deviceToken = Deno.env.get("DASHBOARD_TOGGLE_TOKEN");
+    if (deviceToken && req.headers.get("x-dashboard-toggle-token") === deviceToken) {
+      const url = new URL(`${requiredEnv("INSFORGE_BASE_URL")}/functions/kindle-dashboard-widgets`);
+      url.searchParams.set("date", requestedDate);
+      const response = await fetch(url, { headers: { "x-dashboard-toggle-token": deviceToken }, signal: AbortSignal.timeout(40000) });
+      if (!response.ok) throw new Error("Private widgets are temporarily unavailable");
+      const widgets = await response.json();
+      return jsonResponse({ ...payload, quick_note: widgets.quick_note, calendar: widgets.calendar,
+        version: hashText(JSON.stringify([payload.version, widgets.quick_note, widgets.calendar])) });
+    }
     return jsonResponse(payload);
   } catch (error) {
     return jsonResponse({ ok: false, error: errorMessage(error) }, 500);
@@ -178,10 +191,10 @@ async function loadDashboardPayload(today = dashboardLocalDate()): Promise<Dashb
       .order("created_at", { ascending: false }),
     admin.database
       .from("health_daily_summaries")
-      .select("date,steps,dietary_energy_kcal,protein_g,synced_at,updated_at")
-      .eq("source", "apple_health_ios")
+      .select("source,date,steps,dietary_energy_kcal,protein_g,synced_at,updated_at")
+      .in("source", ["google_health", "apple_health_ios"])
       .eq("date", today)
-      .limit(1),
+      .limit(2),
     admin.database
       .from("challenge_daily_logs")
       .select("date,water_l,sleep_hours,workouts,updated_at")
@@ -249,7 +262,7 @@ async function loadDashboardPayload(today = dashboardLocalDate()): Promise<Dashb
   const buildStarted = timeMs();
   const staleCompletedCutoff = Date.now() - COMPLETED_ITEM_HIDE_AFTER_MS;
   const plannerItems = (items as PlannerItem[]).filter((item) => shouldShowPlannerItem(item, staleCompletedCutoff));
-  const health = firstRow<HealthSummary>(healthRows);
+  const health = preferredHealthSummary(healthRows);
   const challenge = firstRow<ChallengeLog>(challengeRows);
   const challengeStart = firstRow<Pick<ChallengeLog, "date">>(challengeStartRows);
   const challengeDay = challengeStart?.date ? challengeDayFor(today, challengeStart.date) : 1;
@@ -365,7 +378,7 @@ function clampRating(value: string | number): number {
 }
 
 function dashboardLocalDate(): string {
-  const timezone = Deno.env.get("DASHBOARD_TIMEZONE") || "Asia/Kolkata";
+  const timezone = Deno.env.get("DASHBOARD_TIMEZONE") || "UTC";
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -427,6 +440,17 @@ function metricTarget(
   };
 }
 
+// Google Health owns the entire daily summary once connected, including zero
+// food totals after a log is deleted. Never mix providers or add their steps.
+// After account setup, a missing Google row must not silently switch providers.
+function preferredHealthSummary(rows: unknown): HealthSummary | null {
+  if (!Array.isArray(rows)) return null;
+  const summaries = rows as HealthSummary[];
+  const google = summaries.find((row) => row.source === "google_health");
+  if (google || Deno.env.get("GOOGLE_HEALTH_REFRESH_TOKEN")) return google ?? null;
+  return summaries.find((row) => row.source === "apple_health_ios") ?? null;
+}
+
 function firstRow<T>(rows: unknown): T | null {
   return Array.isArray(rows) && rows.length > 0 ? rows[0] as T : null;
 }
@@ -442,22 +466,8 @@ function corsHeaders(): HeadersInit {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Dashboard-Read-Token, Authorization"
+    "Access-Control-Allow-Headers": "Content-Type, X-Dashboard-Toggle-Token, X-Dashboard-Read-Token, Authorization"
   };
-}
-
-function isAuthorizedDashboardRead(req: Request): boolean {
-  const configuredToken = requiredEnv("DASHBOARD_READ_TOKEN");
-  const receivedToken =
-    req.headers.get("x-dashboard-read-token") ||
-    bearerToken(req.headers.get("authorization")) ||
-    new URL(req.url).searchParams.get("read_token");
-  return Boolean(receivedToken) && receivedToken === configuredToken;
-}
-
-function bearerToken(header: string | null): string {
-  const match = /^Bearer\s+(.+)$/i.exec(header || "");
-  return match?.[1]?.trim() || "";
 }
 
 function requiredEnv(key: string): string {
@@ -500,4 +510,19 @@ function hashText(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+
+function isAuthorizedDashboardRead(req: Request): boolean {
+  const configuredToken = Deno.env.get("DASHBOARD_READ_TOKEN");
+  const receivedToken =
+    req.headers.get("x-dashboard-read-token") ||
+    bearerToken(req.headers.get("authorization")) ||
+    new URL(req.url).searchParams.get("read_token");
+  return Boolean(configuredToken && receivedToken) && receivedToken === configuredToken;
+}
+
+function bearerToken(header: string | null): string {
+  const match = /^Bearer\s+(.+)$/i.exec(header || "");
+  return match?.[1]?.trim() || "";
 }

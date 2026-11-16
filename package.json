@@ -7,10 +7,24 @@
     "native:check": "make -C kindle/native check",
     "native:install": "node scripts/install-kindle-native.mjs",
     "native:proof": "node scripts/check-kindle-proof.mjs",
-    "check": "npm run native:check",
+    "check": "npm run test:privacy && npm run test:health && npm run test:widgets && npm run test:music && npm run test:orders && npm run native:check && python3 tests/test_spotify_control.py && python3 tests/test_spotify_mixer.py",
     "telegram:chat-id": "node scripts/get-telegram-chat-id.mjs",
     "telegram:configure": "node scripts/configure-telegram.mjs",
-    "kit:backend": "node scripts/bootstrap-insforge-kit.mjs"
+    "kit:backend": "node scripts/bootstrap-insforge-kit.mjs",
+    "health:connect": "node scripts/connect-google-health.mjs",
+    "health:configure": "node scripts/configure-google-health.mjs",
+    "calendar:connect": "node scripts/connect-google-calendar.mjs",
+    "calendar:configure": "node scripts/configure-google-calendar.mjs",
+    "music:connect": "node scripts/connect-spotify.mjs",
+    "music:configure": "node scripts/configure-spotify.mjs",
+    "music:build": "python3 scripts/build-kindle-spotify.py",
+    "music:install": "python3 scripts/install-kindle-spotify.py",
+    "orders:sync": "node scripts/sync-dashboard-orders.mjs",
+    "test:health": "node --test tests/google-health.test.mjs",
+    "test:widgets": "node --test tests/kindle-widgets.test.mjs",
+    "test:music": "node --test tests/kindle-music.test.mjs",
+    "test:orders": "node --test tests/kindle-orders.test.mjs",
+    "test:privacy": "node --test tests/dashboard-privacy.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.5.4"

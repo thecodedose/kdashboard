@@ -12,7 +12,9 @@ const schemaMigrations = [
   "migrations/20260629162000_create-meal-plan-entries.sql",
   "migrations/20260701000000_add-recipe-rating.sql",
   "migrations/20260701001000_recipe-rating-out-of-five.sql",
-  "migrations/20260707000000_enable_rls_private_tables.sql"
+  "migrations/20260707000000_enable_rls_private_tables.sql",
+  "migrations/20261022000000_create-dashboard-notes.sql",
+  "migrations/20261115063951_create-dashboard-orders.sql"
 ];
 
 const sampleDataMigrations = [
@@ -21,6 +23,12 @@ const sampleDataMigrations = [
 ];
 
 const functions = [
+  ["google-health-sync", "functions/google-health-sync.ts", "Google Health Sync"],
+  ["kindle-dashboard-widgets", "functions/kindle-dashboard-widgets.ts", "Private Dashboard Widgets"],
+  ["kindle-dashboard-music", "functions/kindle-dashboard-music.ts", "Dashboard Music"],
+  ["kindle-dashboard-orders", "functions/kindle-dashboard-orders.ts", "Dashboard Orders"],
+  ["kindle-dashboard-info", "functions/kindle-dashboard-info.ts", "Dashboard Information"],
+  ["kindle-dashboard-version", "functions/kindle-dashboard-version.ts", "Dashboard Version"],
   ["kindle-dashboard-data", "functions/kindle-dashboard-data.ts", "Kindle Dashboard Data"],
   ["kindle-dashboard-events", "functions/kindle-dashboard-events.ts", "Kindle Dashboard Events"],
   ["kindle-dashboard-toggle", "functions/kindle-dashboard-toggle.ts", "Kindle Dashboard Toggle"],
@@ -99,7 +107,7 @@ function randomSecret() {
 }
 
 function run(args, options = {}) {
-  const output = execFileSync("npx", ["@insforge/cli", ...args], {
+  const output = execFileSync("npx", ["-y", "@insforge/cli", ...args], {
     encoding: "utf8",
     stdio: options.silent ? ["ignore", "pipe", "pipe"] : "inherit"
   });

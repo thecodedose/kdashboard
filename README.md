@@ -1,6 +1,12 @@
 # Kindle Planner Dashboard
 
-Monochrome, Kindle-friendly planner dashboard with Telegram bot updates.
+Monochrome, Kindle-friendly home dashboard with Telegram updates, Quick Note,
+Google Health and Calendar, direct Narwal vacuum controls, Spotify music and
+private delivery summaries. Each installation brings its own backend and accounts.
+
+See the [optional integration guides](docs/INSTALL_FOR_USERS.md#optional-integrations-in-this-version)
+for setup. No personal account connections, device identities or sync automations
+are bundled. `npm run check` runs the backend and native regression suite.
 
 ## Requirements
 
@@ -53,7 +59,8 @@ If you are using a coding assistant for setup, use
 
 **Backend:** InsForge
 
-**Inputs:** Telegram bot + iOS HealthKit
+**Inputs:** Telegram bot, optional iOS HealthKit or Google Health, Google Calendar,
+Spotify, local vacuum telemetry, and owner-synced delivery summaries
 
 Code entry points:
 
@@ -68,7 +75,7 @@ Code entry points:
 InsForge handles the cloud layer:
 
 **Postgres Database:** chores, groceries, recipes, meal plans, health summaries,
-challenge logs
+challenge logs, quick notes, and delivery summaries
 
 **Edge functions:** read dashboard data, sync HealthKit, parse Telegram updates,
 toggle Kindle tasks, SSE live events
@@ -120,7 +127,7 @@ secret header + allowed chat ID
 Code:
 [`functions/telegram-webhook.ts`](functions/telegram-webhook.ts)
 
-Then it parses my message into a strict action (how on next slide):
+Then it parses the message into a strict action (how on next slide):
 
 ```json
 {

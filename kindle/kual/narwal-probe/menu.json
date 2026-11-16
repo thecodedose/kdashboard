@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "name": "Narwal Connection Test",
+      "priority": 11,
+      "items": [
+        {
+          "name": "Test X10 Pro (status only)",
+          "priority": 1,
+          "action": "/bin/sh",
+          "params": "/mnt/us/extensions/narwal-probe/bin/test.sh",
+          "exitmenu": false
+        }
+      ]
+    }
+  ]
+}

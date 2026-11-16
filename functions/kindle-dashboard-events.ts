@@ -12,6 +12,7 @@ type PlannerItem = {
 };
 
 type HealthSummary = {
+  source: string;
   date: string;
   steps: number;
   dietary_energy_kcal: string | number;
@@ -55,6 +56,7 @@ type DashboardData = {
   challenge: ChallengeLog | null;
   mealPlan: MealPlanEntry[];
   recipes: RecipeVersion[];
+  noteUpdatedAt: string | null;
 };
 
 export default function(req: Request): Response {
@@ -71,8 +73,7 @@ export default function(req: Request): Response {
 
   if (!isAuthorizedDashboardRead(req)) {
     return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders(), "Content-Type": "application/json; charset=utf-8" }
+      status: 401, headers: { ...corsHeaders(), "Content-Type": "application/json; charset=utf-8" }
     });
   }
 
@@ -100,7 +101,7 @@ export default function(req: Request): Response {
           controller.enqueue(encoder.encode(`data: ${version}\n\n`));
         } catch (error) {
           controller.enqueue(encoder.encode(`event: planner-error\n`));
-          controller.enqueue(encoder.encode(`data: ${errorMessage(error)}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${escapeHtml(errorMessage(error))}\n\n`));
         }
       }
 
@@ -146,7 +147,8 @@ async function loadDashboardData(): Promise<DashboardData> {
     challengeResult,
     targetsResult,
     mealPlanResult,
-    recipesResult
+    recipesResult,
+    noteResult
   ] = await Promise.all([
     admin.database
       .from("planner_items")
@@ -155,10 +157,10 @@ async function loadDashboardData(): Promise<DashboardData> {
       .order("created_at", { ascending: false }),
     admin.database
       .from("health_daily_summaries")
-      .select("date,steps,dietary_energy_kcal,synced_at,updated_at")
-      .eq("source", "apple_health_ios")
+      .select("source,date,steps,dietary_energy_kcal,synced_at,updated_at")
+      .in("source", ["google_health", "apple_health_ios"])
       .eq("date", today)
-      .limit(1),
+      .limit(2),
     admin.database
       .from("challenge_daily_logs")
       .select("date,water_l,sleep_hours,workouts,updated_at")
@@ -176,7 +178,9 @@ async function loadDashboardData(): Promise<DashboardData> {
     admin.database
       .from("recipes")
       .select("id,rating,updated_at")
-      .order("id", { ascending: true })
+      .order("id", { ascending: true }),
+    // Only a timestamp participates in the public change hash; note text stays private.
+    admin.database.from("dashboard_notes").select("updated_at").eq("id", "quick_note").limit(1)
   ]);
   const baseQueryMs = elapsedMs(baseStarted);
 
@@ -198,13 +202,15 @@ async function loadDashboardData(): Promise<DashboardData> {
   const { data: recipeRows, error: recipesError } = recipesResult;
   if (recipesError) throw recipesError;
 
+  if (noteResult.error) throw noteResult.error;
   const payload = {
     items: items as PlannerItem[],
-    health: firstRow<HealthSummary>(healthRows),
+    health: preferredHealthSummary(healthRows),
     targets: targets as HealthTarget[],
     challenge: firstRow<ChallengeLog>(challengeRows),
     mealPlan: mealPlanRows as MealPlanEntry[],
-    recipes: recipeRows as RecipeVersion[]
+    recipes: recipeRows as RecipeVersion[],
+    noteUpdatedAt: firstRow<{ updated_at: string }>(noteResult.data)?.updated_at ?? null
   };
   logTiming("kindle-dashboard-events", {
     base_query_ms: baseQueryMs,
@@ -221,24 +227,21 @@ function getDashboardVersion(data: DashboardData): string {
     challenge: data.challenge,
     mealPlan: data.mealPlan,
     recipes: data.recipes,
+    noteUpdatedAt: data.noteUpdatedAt,
     targets: [...data.targets].sort((a, b) => a.metric.localeCompare(b.metric))
   }));
 }
 
-function firstRow<T>(rows: unknown): T | null {
-  return Array.isArray(rows) && rows.length > 0 ? rows[0] as T : null;
+function preferredHealthSummary(rows: unknown): HealthSummary | null {
+  if (!Array.isArray(rows)) return null;
+  const summaries = rows as HealthSummary[];
+  const google = summaries.find((row) => row.source === "google_health");
+  if (google || Deno.env.get("GOOGLE_HEALTH_REFRESH_TOKEN")) return google ?? null;
+  return summaries.find((row) => row.source === "apple_health_ios") ?? null;
 }
 
-function dashboardLocalDate(): string {
-  const timezone = Deno.env.get("DASHBOARD_TIMEZONE") || "Asia/Kolkata";
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(new Date());
-  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${byType.year}-${byType.month}-${byType.day}`;
+function firstRow<T>(rows: unknown): T | null {
+  return Array.isArray(rows) && rows.length > 0 ? rows[0] as T : null;
 }
 
 function hashText(value: string): string {
@@ -256,20 +259,6 @@ function corsHeaders(): HeadersInit {
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Dashboard-Read-Token, Authorization"
   };
-}
-
-function isAuthorizedDashboardRead(req: Request): boolean {
-  const configuredToken = requiredEnv("DASHBOARD_READ_TOKEN");
-  const receivedToken =
-    req.headers.get("x-dashboard-read-token") ||
-    bearerToken(req.headers.get("authorization")) ||
-    new URL(req.url).searchParams.get("read_token");
-  return Boolean(receivedToken) && receivedToken === configuredToken;
-}
-
-function bearerToken(header: string | null): string {
-  const match = /^Bearer\s+(.+)$/i.exec(header || "");
-  return match?.[1]?.trim() || "";
 }
 
 function requiredEnv(key: string): string {
@@ -292,4 +281,41 @@ function elapsedMs(started: number): number {
 
 function logTiming(label: string, timing: Record<string, number>): void {
   console.log(`${label} timing ${JSON.stringify(timing)}`);
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+
+function isAuthorizedDashboardRead(req: Request): boolean {
+  const configuredToken = Deno.env.get("DASHBOARD_READ_TOKEN");
+  const receivedToken =
+    req.headers.get("x-dashboard-read-token") ||
+    bearerToken(req.headers.get("authorization")) ||
+    new URL(req.url).searchParams.get("read_token");
+  return Boolean(configuredToken && receivedToken) && receivedToken === configuredToken;
+}
+
+function bearerToken(header: string | null): string {
+  const match = /^Bearer\s+(.+)$/i.exec(header || "");
+  return match?.[1]?.trim() || "";
+}
+
+
+function dashboardLocalDate(): string {
+  const timezone = Deno.env.get("DASHBOARD_TIMEZONE") || "UTC";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
 }

@@ -1,0 +1,55 @@
+Soloist Pulse client ABI
+========================
+
+Soloist 1.3.7 (CDN x86_64 1.3.7.474; also 1.3.7.472) does not DT_NEEDED
+libpulse. It dlopens libpulse.so.0 and looks up these names. That list is
+the spec. libpulse-simple and libpulse-mainloop-glib are not used.
+
+pa_context_connect
+pa_context_disconnect
+pa_context_errno
+pa_context_get_sink_input_info
+pa_context_get_state
+pa_context_new
+pa_context_set_sink_input_volume
+pa_context_set_state_callback
+pa_context_set_subscribe_callback
+pa_context_subscribe
+pa_context_unref
+pa_cvolume_avg
+pa_cvolume_set
+pa_gettimeofday
+pa_operation_get_state
+pa_operation_unref
+pa_proplist_free
+pa_proplist_new
+pa_proplist_sets
+pa_stream_connect_playback
+pa_stream_cork
+pa_stream_disconnect
+pa_stream_flush
+pa_stream_get_index
+pa_stream_get_state
+pa_stream_get_timing_info
+pa_stream_is_corked
+pa_stream_new
+pa_stream_new_with_proplist
+pa_stream_set_started_callback
+pa_stream_set_state_callback
+pa_stream_set_underflow_callback
+pa_stream_unref
+pa_stream_update_timing_info
+pa_stream_writable_size
+pa_stream_write
+pa_strerror
+pa_threaded_mainloop_free
+pa_threaded_mainloop_get_api
+pa_threaded_mainloop_lock
+pa_threaded_mainloop_new
+pa_threaded_mainloop_signal
+pa_threaded_mainloop_start
+pa_threaded_mainloop_stop
+pa_threaded_mainloop_unlock
+pa_threaded_mainloop_wait
+pa_timeval_diff
+pa_usec_to_bytes

@@ -1,0 +1,30 @@
+{
+  "soloist_url": "https://soloist-builds.spotifycdn.com/soloist_release_arm32.tar.gz",
+  "soloist_binary_sha256": "dc53dc04c9db3b807f4fff7f845e18d4c3a200d2da55c26e9b485bcb13e33b43",
+  "packages": [
+    {
+      "Package": "libc6",
+      "Version": "2.41-12+deb13u4",
+      "Filename": "pool/main/g/glibc/libc6_2.41-12+deb13u4_armhf.deb",
+      "SHA256": "4fc6fed8d77d01c0dacb5fda8b880a8c8a669575936de5761b693077a6f6c2ec"
+    },
+    {
+      "Package": "libatomic1",
+      "Version": "14.2.0-19",
+      "Filename": "pool/main/g/gcc-14/libatomic1_14.2.0-19_armhf.deb",
+      "SHA256": "e4a4dc17913ded43f2a8571f9c8c214d05534632fc5a41705d6b39acd8d5f4a4"
+    },
+    {
+      "Package": "libasound2t64",
+      "Version": "1.2.14-1+deb13u1",
+      "Filename": "pool/main/a/alsa-lib/libasound2t64_1.2.14-1+deb13u1_armhf.deb",
+      "SHA256": "7216334fad7b64dc619a3aba8910c3ae36ffe0737c9bf94a558caffcaaa7ef80"
+    },
+    {
+      "Package": "libasound2-dev",
+      "Version": "1.2.14-1+deb13u1",
+      "Filename": "pool/main/a/alsa-lib/libasound2-dev_1.2.14-1+deb13u1_armhf.deb",
+      "SHA256": "33f97b006987d6b783ce669dd49f08e224c1e21b9791279a1b6982fd8943d4b2"
+    }
+  ]
+}
